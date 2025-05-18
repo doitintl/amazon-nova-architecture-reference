@@ -80,37 +80,48 @@ if os.getenv("TURN_SERVER"):
 # Mount the frontend UI at /client
 app.mount("/client", SmallWebRTCPrebuiltUI)
 
-# Initialize DynamoDB client if table name is provided
-dynamodb_client = None
-dynamodb_table_name = os.getenv("DYNAMODB_TABLE_NAME")
-if dynamodb_table_name:
-    dynamodb_client = boto3.resource(
-        "dynamodb",
-        region_name=os.getenv("AWS_REGION", "us-east-1"),
-        endpoint_url=os.getenv("DYNAMODB_ENDPOINT"),  # None if not set
-    ).Table(dynamodb_table_name)
-    logger.info(f"DynamoDB integration enabled with table: {dynamodb_table_name}")
 
+# Transcription callback to store conversations
+class TranscriptHandler:
+    def __init__(self):
+        self.messages = []
+        # Initialize DynamoDB client if table name is provided
+        self.dynamodb_client = None
+        dynamodb_table_name = os.getenv("DYNAMODB_TABLE_NAME")
+        if dynamodb_table_name:
+            self.dynamodb_client = boto3.resource(
+                "dynamodb",
+                region_name=os.getenv("AWS_REGION", "us-east-1")
+            ).Table(dynamodb_table_name)
+            logger.info(f"DynamoDB integration enabled with table: {dynamodb_table_name}")
 
-# Function to store conversation in DynamoDB
-async def store_conversation(conversation_id: str, user_text: str, assistant_text: str):
-    """Store conversation in DynamoDB."""
-    if not dynamodb_client:
-        logger.debug("DynamoDB integration not enabled, skipping storage")
-        return
+    async def on_transcript_update(self, processor, frame):
+        self.messages.extend(frame.messages)
 
-    try:
-        timestamp = datetime.now().isoformat()
-        item = {
-            "conversation_id": conversation_id,
-            "timestamp": timestamp,
-            "user_text": user_text,
-            "assistant_text": assistant_text,
-        }
-        dynamodb_client.put_item(Item=item)
-        logger.debug(f"Stored conversation in DynamoDB: {conversation_id}")
-    except Exception as e:
-        logger.error(f"Error storing conversation in DynamoDB: {e}")
+        # Log new messages with timestamps
+        for msg in frame.messages:
+            timestamp = f"[{msg.timestamp}] " if msg.timestamp else datetime.now().isoformat()
+            message = f"{msg.role}: {msg.content}"
+            print(f"{timestamp}{message}")
+            await self.store_conversation(message)
+
+    # Function to store conversation in DynamoDB
+    async def store_conversation(self, message):
+        """Store conversation in DynamoDB."""
+        if not self.dynamodb_client:
+            logger.debug("DynamoDB integration not enabled, skipping storage")
+            return
+
+        try:
+            timestamp = datetime.now().isoformat()
+            item = {
+                "conversation_id": timestamp,
+                "conversation": message
+            }
+            self.dynamodb_client.put_item(Item=item)
+            logger.debug(f"Stored conversation in DynamoDB: {timestamp}")
+        except Exception as e:
+            logger.error(f"Error storing conversation in DynamoDB: {e}")
 
 
 # Example function for weather API integration
@@ -147,9 +158,6 @@ weather_function = FunctionSchema(
 
 # Create tools schema
 tools = ToolsSchema(standard_tools=[weather_function])
-
-
-# Transcription callback to store conversations
 
 async def run_bot(webrtc_connection: SmallWebRTCConnection, args: argparse.Namespace):
     """Run the Nova Sonic bot with the given WebRTC connection."""
@@ -221,14 +229,15 @@ async def run_bot(webrtc_connection: SmallWebRTCConnection, args: argparse.Names
     
     # Create a callback handler for transcription events
     transcript = TranscriptProcessor()
+    transcript_handler = TranscriptHandler()
 
     # Build the pipeline
     pipeline = Pipeline(
         [
             transport.input(),
-            transcript.user(),              # Captures user transcripts
             context_aggregator.user(),
             llm,
+            transcript.user(),              # Captures user transcripts
             transport.output(),
             transcript.assistant(),         # Captures assistant transcripts
             context_aggregator.assistant(),
@@ -250,9 +259,7 @@ async def run_bot(webrtc_connection: SmallWebRTCConnection, args: argparse.Names
 
     @transcript.event_handler("on_transcript_update")
     async def handle_transcript_update(processor, frame):
-        # Each message contains role (user/assistant), content, and timestamp
-        for message in frame.messages:
-            print(f"[{message.timestamp}] {message.role}: {message.content}")
+        await transcript_handler.on_transcript_update(processor, frame)
             
     # Handle client connection event
     @transport.event_handler("on_client_connected")
