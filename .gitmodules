@@ -1,0 +1,3 @@
+[submodule "amazon-q-business-workshop"]
+	path = amazon-q-business-workshop
+	url = https://github.com/doitintl/amazon-q-business-workshop.git
