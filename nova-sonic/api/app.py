@@ -1,9 +1,3 @@
-#
-# Copyright (c) 2024–2025, Daily
-#
-# SPDX-License-Identifier: BSD 2-Clause License
-#
-
 import argparse
 import asyncio
 import json
@@ -36,12 +30,14 @@ from pipecat.services.llm_service import FunctionCallParams
 from pipecat.transports.base_transport import TransportParams
 from pipecat.transports.network.small_webrtc import SmallWebRTCTransport
 from pipecat.transports.network.webrtc_connection import IceServer, SmallWebRTCConnection
+from pipecat.services.aws.stt import AWSTranscribeSTTService, Language
+from pipecat.processors.transcript_processor import TranscriptProcessor
 
 # Load environment variables
 load_dotenv(override=True)
 
 # Configure logging
-log_level = os.getenv("LOG_LEVEL", "INFO")
+log_level = os.getenv("LOG_LEVEL", "DEBUG")
 logger.remove()
 logger.add(sys.stderr, level=log_level)
 
@@ -154,30 +150,6 @@ tools = ToolsSchema(standard_tools=[weather_function])
 
 
 # Transcription callback to store conversations
-class TranscriptionHandler:
-    def __init__(self, conversation_id: str):
-        self.conversation_id = conversation_id
-        self.user_text = ""
-        self.assistant_text = ""
-
-    async def on_user_transcription(self, text: str):
-        """Handle user transcription."""
-        self.user_text = text
-        logger.debug(f"User: {text}")
-
-    async def on_assistant_transcription(self, text: str):
-        """Handle assistant transcription."""
-        self.assistant_text = text
-        logger.debug(f"Assistant: {text}")
-        
-        # Store the conversation pair in DynamoDB
-        if self.user_text and self.assistant_text:
-            await store_conversation(
-                self.conversation_id, self.user_text, self.assistant_text
-            )
-            # Reset for next turn
-            self.user_text = ""
-
 
 async def run_bot(webrtc_connection: SmallWebRTCConnection, args: argparse.Namespace):
     """Run the Nova Sonic bot with the given WebRTC connection."""
@@ -187,9 +159,6 @@ async def run_bot(webrtc_connection: SmallWebRTCConnection, args: argparse.Names
     conversation_id = str(uuid.uuid4())
     logger.info(f"New conversation started: {conversation_id}")
     
-    # Create transcription handler
-    transcription_handler = TranscriptionHandler(conversation_id)
-
     # Initialize the SmallWebRTCTransport with the connection
     transport = SmallWebRTCTransport(
         webrtc_connection=webrtc_connection,
@@ -219,11 +188,9 @@ async def run_bot(webrtc_connection: SmallWebRTCConnection, args: argparse.Names
         access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
         region=region,
         voice_id=voice_id,  # matthew, tiffany, amy
+        send_transcription_frames=True
     )
     
-    # Register transcription callback for assistant responses
-    # llm.register_transcription_callback(transcription_handler.on_assistant_transcription)
-
     # Register function for function calls
     llm.register_function("get_current_weather", fetch_weather_from_api)
 
@@ -240,16 +207,36 @@ async def run_bot(webrtc_connection: SmallWebRTCConnection, args: argparse.Names
     )
     context_aggregator = llm.create_context_aggregator(context)
 
+    # Initialize AWS Transcribe STT service
+    # This is causing error now:
+    # 2025-05-17 21:44:15.950 | DEBUG    | pipecat.services.aws.stt:_connect:212 - AWSTranscribeSTTService#1 Connecting to WebSocket with URL: wss://transcribestreaming.us-east-1.amazonaws.com:8443/stream-transcription-websocket?X-Amz-Algorith...
+    # 2025-05-17 21:44:15.951 | ERROR    | pipecat.services.aws.stt:_connect:232 - AWSTranscribeSTTService#1 Failed to connect to AWS Transcribe: create_connection() got an unexpected keyword argument 'extra_headers'
+    # stt_service = AWSTranscribeSTTService(
+    #     secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
+    #     access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
+    #     region=region,
+    #     sample_rate=16000,
+    #     language=Language.EN
+    # )
+    
+    # Create a callback handler for transcription events
+    transcript = TranscriptProcessor()
+
     # Build the pipeline
     pipeline = Pipeline(
         [
             transport.input(),
+            transcript.user(),              # Captures user transcripts
             context_aggregator.user(),
             llm,
             transport.output(),
+            transcript.assistant(),         # Captures assistant transcripts
             context_aggregator.assistant(),
         ]
     )
+    
+    # Note: We can't use event handlers for transcriptions because the services don't support them
+    # Instead, we'll rely on the DynamoDB integration for storing conversations if needed
 
     # Configure the pipeline task
     task = PipelineTask(
@@ -261,6 +248,12 @@ async def run_bot(webrtc_connection: SmallWebRTCConnection, args: argparse.Names
         ),
     )
 
+    @transcript.event_handler("on_transcript_update")
+    async def handle_transcript_update(processor, frame):
+        # Each message contains role (user/assistant), content, and timestamp
+        for message in frame.messages:
+            print(f"[{message.timestamp}] {message.role}: {message.content}")
+            
     # Handle client connection event
     @transport.event_handler("on_client_connected")
     async def on_client_connected(transport, client):
