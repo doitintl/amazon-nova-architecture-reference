@@ -22,6 +22,8 @@ from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.pipeline.pipeline import Pipeline
+from pipecat.pipeline.parallel_pipeline import ParallelPipeline
+
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
 from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
@@ -237,9 +239,12 @@ async def run_bot(webrtc_connection: SmallWebRTCConnection, args: argparse.Names
             transport.input(),
             context_aggregator.user(),
             llm,
-            transcript.user(),              # Captures user transcripts
-            transport.output(),
-            transcript.assistant(),         # Captures assistant transcripts
+            ParallelPipeline(
+            [
+                transcript.user(),              # Captures user transcripts
+                transcript.assistant(),         # Captures assistant transcripts
+                transport.output(),
+            ]),
             context_aggregator.assistant(),
         ]
     )
