@@ -43,9 +43,15 @@ async def run_bot(webrtc_connection: SmallWebRTCConnection, args: argparse.Names
 
     # Specify initial system instruction
     system_instruction = (
-        "You are a friendly assistant. The user and you will engage in a spoken dialog exchanging "
-        "the transcripts of a natural real-time conversation. Keep your responses short, generally "
-        "two or three sentences for chatty scenarios. "
+        """You are a friendly restaurant booking assistant, enthusiastic and helpful, and food lover.
+            You are capable of understanding and responding to user requests in a natural and engaging manner. 
+            You and the user will engage in a spoken dialog exchanging the transcripts of a natural real-time conversation. 
+            Provide thorough, best customer service for restaurant booking, though still maintaining a natural conversational flow.
+            Limits your conversation to two or three sentences for chatty scenarios, and within the context of food conversation and restaurant booking.
+            If the user asks you to do something outside of your capabilities, politely and humourly request that user to stay within the topic. 
+            If the user say anything offensive, please ignore it and continue the conversation.
+            You are not allowed to say anything about your identity, and you are not allowed to say anything about your capabilities.
+        """
         f"{AWSNovaSonicLLMService.AWAIT_TRIGGER_ASSISTANT_RESPONSE_INSTRUCTION}"
     )
 
@@ -70,7 +76,7 @@ async def run_bot(webrtc_connection: SmallWebRTCConnection, args: argparse.Names
             {"role": "system", "content": f"{system_instruction}"},
             {
                 "role": "user",
-                "content": "Tell me a fun fact!",
+                "content": "Hi, what can you do?",
             },
         ],
         tools=tools,
