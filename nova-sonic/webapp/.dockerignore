@@ -1,0 +1,16 @@
+# Exclude node_modules directory
+node_modules
+
+# Exclude build artifacts
+dist
+
+# Exclude development files
+.git
+.gitignore
+README.md
+*.log
+npm-debug.log*
+
+# Exclude environment files
+.env
+.env.*
