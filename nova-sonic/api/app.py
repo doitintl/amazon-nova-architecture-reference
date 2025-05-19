@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from loguru import logger
 from pipecat.transports.network.webrtc_connection import IceServer, SmallWebRTCConnection
+from pipecat_ai_small_webrtc_prebuilt.frontend import SmallWebRTCPrebuiltUI
 
 # Import our separated modules
 from bot import run_bot
@@ -61,6 +62,14 @@ if os.getenv("TURN_SERVER"):
             credential=os.getenv("TURN_PASSWORD"),
         )
     )
+
+# Mount the frontend at /
+app.mount("/client", SmallWebRTCPrebuiltUI)
+
+
+@app.get("/", include_in_schema=False)
+async def root_redirect():
+    return RedirectResponse(url="/client/")
 
 @app.post("/api/offer")
 async def offer(request: Request, background_tasks: BackgroundTasks):
