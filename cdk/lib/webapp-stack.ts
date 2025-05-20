@@ -159,7 +159,7 @@ export class WebappStack extends cdk.Stack {
 
     // Auto-scaling configuration
     const scaling = this.service.autoScaleTaskCount({
-      minCapacity: 2,
+      minCapacity: 1,
       maxCapacity: 10,
     });
 
