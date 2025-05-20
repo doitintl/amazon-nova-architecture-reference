@@ -105,6 +105,10 @@
   </div>
 
   <link rel="stylesheet" href="/src/style.css">
+  <script>
+    // Make API endpoint available to the browser environment
+    window.API_ENDPOINT = "%API_ENDPOINT%"; // This will be replaced by Vite during build
+  </script>
   <script type="module" src="/src/app.ts"></script>
   <script type="module" src="/src/voice-visualizer.ts"></script>
 </body>

@@ -85,12 +85,16 @@ class WebRTCApp {
       transport.setVideoCodec(this.videoCodec.value);
     }
 
+    transport.iceServers = [
+        "stun:stun.l.google.com:19302",
+    ];
+
     const RTVIConfig: RTVIClientOptions = {
       // need to understand why it is complaining
       // @ts-ignore
       transport,
       params: {
-        baseUrl: `${process.env.API_ENDPOINT || 'http://localhost:8000'}/api/offer`,
+        baseUrl: `${(window as any).API_ENDPOINT || 'http://localhost:8000'}/api/offer`,
       },
       enableMic: true, // We'll control actual muting with enableMic() later
       enableCam: !this.cameraMuted, // Start with camera off by default
