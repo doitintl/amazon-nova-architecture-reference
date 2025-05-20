@@ -12,7 +12,12 @@ RUN apt-get update && apt-get install -y \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements first for better caching
+RUN pip install boto3 "pipecat[aws-nova-sonic,webrtc]" \
+    "fastapi[standard]" \
+    loguru pipecat-ai av aiortc pipecat_ai_small_webrtc_prebuilt onnxruntime aws_sdk_bedrock_runtime \
+    opencv-python requests
+
+    # Copy requirements first for better caching
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
