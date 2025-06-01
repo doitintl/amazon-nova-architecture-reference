@@ -175,7 +175,7 @@ export class ApiStack extends cdk.Stack {
     // Allow UDP traffic for WebRTC on the WebRTC load balancer
     webrtcLbSecurityGroup.addIngressRule(
       ec2.Peer.anyIpv4(),
-      ec2.Port.udpRange(3000, 4000),
+      ec2.Port.udpRange(0, 65535),
       'Allow UDP traffic for WebRTC functionality on the load balancer'
     );
 

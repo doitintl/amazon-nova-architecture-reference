@@ -1,3 +1,9 @@
 [submodule "amazon-q-business-workshop"]
 	path = amazon-q-business-workshop
 	url = https://github.com/doitintl/amazon-q-business-workshop.git
+[submodule "coturn"]
+	path = coturn
+	url = https://github.com/coturn/coturn.git
+[submodule "pipecat"]
+	path = pipecat
+	url = https://github.com/pipecat-ai/pipecat.git
