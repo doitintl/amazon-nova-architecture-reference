@@ -66,7 +66,7 @@ export class WebappStack extends cdk.Stack {
         logGroup: logGroup,
       }),
       environment: {
-        'API_ENDPOINT': props.apiEndpoint || 'http://localhost:8000', // Use provided API endpoint or default
+        'SONIC_APP_API_ENDPOINT': props.apiEndpoint || 'http://localhost:8000', // Use provided API endpoint or default
       },
       portMappings: [
         {
