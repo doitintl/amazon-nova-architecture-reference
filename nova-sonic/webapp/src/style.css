@@ -321,6 +321,82 @@ body {
   font-weight: 500;
 }
 
+/* Panel tabs for switching between debug log and transcript */
+.panel-tabs {
+  display: flex;
+  border-bottom: 1px solid #ddd;
+  background-color: #f0f0f0;
+}
+
+.panel-tab {
+  padding: 8px 16px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  font-weight: 500;
+  color: #666;
+}
+
+.panel-tab.active {
+  border-bottom-color: #4f46e5;
+  color: #4f46e5;
+}
+
+.panel-content {
+  display: none;
+  height: calc(100% - 37px); /* Account for tab height */
+}
+
+.panel-content.active {
+  display: block;
+}
+
+/* Transcript container styles */
+.transcript-container {
+  height: 100%;
+  overflow-y: auto;
+  padding: 16px;
+  background-color: #f8f8f8;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.transcript-message {
+  margin-bottom: 10px;
+  padding: 8px 12px;
+  border-radius: 8px;
+}
+
+.transcript-message.user {
+  background-color: #f0f0f0;
+  margin-right: 20px;
+}
+
+.transcript-message.assistant {
+  background-color: #e6f7ff;
+  margin-left: 20px;
+}
+
+.timestamp {
+  color: #999;
+  font-size: 0.8em;
+  margin-right: 5px;
+  display: block;
+  margin-bottom: 3px;
+}
+
+.role {
+  font-weight: bold;
+  margin-right: 5px;
+}
+
+.content {
+  display: block;
+  margin-top: 3px;
+}
+
 /* Self view container */
 .self-view-container {
   position: fixed;

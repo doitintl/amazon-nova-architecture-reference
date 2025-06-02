@@ -12,7 +12,6 @@ RUN pnpm install --frozen-lockfile
 
 # Copy source code
 COPY . .
-
 # Build the application
 RUN pnpm run build
 
@@ -25,8 +24,8 @@ COPY --from=build /app/dist /usr/share/nginx/html
 # Copy nginx configuration
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
+COPY env.sh /docker-entrypoint.d/env.sh
+RUN chmod +x /docker-entrypoint.d/env.sh
+
 # Expose port
 EXPOSE 80
-
-# Start nginx
-CMD ["nginx", "-g", "daemon off;"]

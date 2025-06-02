@@ -6,7 +6,7 @@ import { resolve } from 'path';
 
 // Load environment variables from .env file
 const env = config().parsed || {};
-const API_ENDPOINT = env.API_ENDPOINT || 'http://localhost:8000';
+const API_ENDPOINT = process.env.VITE_API_ENDPOINT || env.API_ENDPOINT || 'http://localhost:8000';
 
 export default defineConfig({
   base: "./", //Use relative paths so it works at any mount path

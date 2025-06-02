@@ -15,7 +15,7 @@
     <div class="header-bar">
       <div class="bot-info">
         <img src="/pipecat-logo.svg" alt="Pipecat" class="pipecat-logo">
-        <span id="bot-" class="app-title">Pipecat</span>
+        <span id="bot-name" class="app-title">Pipecat</span>
       </div>
       <div class="header-controls">
         <!-- Camera toggle with dropdown -->
@@ -78,7 +78,12 @@
         <audio id="bot-audio" autoplay></audio>
       </div>
       <div class="debug-panel">
-        <div id="debug-log"></div>
+        <div class="panel-tabs">
+          <button class="panel-tab active" data-tab="debug">Debug Log</button>
+          <button class="panel-tab" data-tab="transcript">Transcript</button>
+        </div>
+        <div id="debug-log" class="panel-content active"></div>
+        <div id="conversation-transcript" class="transcript-container panel-content"></div>
       </div>
     </div>
 
@@ -105,9 +110,11 @@
   </div>
 
   <link rel="stylesheet" href="/src/style.css">
+  <!-- Load runtime configuration first -->
+  <script src="/runtime-config.js"></script>
   <script>
-    // Make API endpoint available to the browser environment
-    window.API_ENDPOINT = "%API_ENDPOINT%"; // This will be replaced by Vite during build
+    // For backward compatibility
+    window.API_ENDPOINT = (window.runtimeConfig && window.runtimeConfig.API_ENDPOINT) || "%API_ENDPOINT%";
   </script>
   <script type="module" src="/src/app.ts"></script>
   <script type="module" src="/src/voice-visualizer.ts"></script>

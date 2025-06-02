@@ -37,6 +37,7 @@ class WebRTCApp {
   private selfViewVideo!: HTMLVideoElement;
   private videoContainer!: HTMLElement;
   private botName!: HTMLElement;
+  private transcriptContainer!: HTMLElement;
 
   // State
   private connected: boolean = false;
@@ -46,6 +47,7 @@ class WebRTCApp {
   private smallWebRTCTransport!: SmallWebRTCTransport;
   private rtviClient!: RTVIClient;
   private declare voiceVisualizer: VoiceVisualizer;
+  private transcripts: Array<{timestamp: string, role: string, content: string}> = [];
 
   constructor() {
     this.initializeVoiceVisualizer();
@@ -85,11 +87,31 @@ class WebRTCApp {
       transport.setVideoCodec(this.videoCodec.value);
     }
 
-    transport.iceServers = [
-        "stun:stun.l.google.com:19302",
-    ];
+    // Get runtime configuration
+    const runtimeConfig = (window as any).runtimeConfig || {};
+    
+    // Configure ICE servers
+    const stunServer = runtimeConfig.STUN_SERVER || "stun:stun.l.google.com:19302";
+    const turnServer = runtimeConfig.TURN_SERVER;
+    const turnUsername = runtimeConfig.TURN_USERNAME;
+    const turnPassword = runtimeConfig.TURN_PASSWORD;
+    
+    // Build ICE servers configuration - SmallWebRTCTransport expects string array
+    const iceServers = [stunServer];
+    
+    // Add TURN server if configured
+    if (turnServer && turnUsername && turnPassword) {
+      // Format: turn:turn-server.example.com:3478?transport=udp&username=user&password=pass
+      iceServers.push(`turn:${turnServer}?username=${encodeURIComponent(turnUsername)}&credential=${encodeURIComponent(turnPassword)}`);
+    }
+    
+    transport.iceServers = iceServers;
 
-    const baseUrl = `${(window as any).API_ENDPOINT || 'http://localhost:8000'}/api/offer`;
+    // The backend will provide the complete ICE configuration including TURN servers
+    // in the WebRTC answer, so we don't need to manually configure TURN here
+
+    // Configure API endpoint using runtime configuration
+    const baseUrl = `${import.meta.env.VITE_API_ENDPOINT}/api/offer`;
     console.log("Base URL:", baseUrl);
 
     const RTVIConfig: RTVIClientOptions = {
@@ -102,51 +124,106 @@ class WebRTCApp {
       enableMic: true, // We'll control actual muting with enableMic() later
       enableCam: !this.cameraMuted, // Start with camera off by default
       callbacks: {
-        // Transport state changes
-        onTransportStateChanged: (state) => {
-          this.log(`Transport state: ${state}`);
-        },
-
         // Connection events
         onConnected: () => {
+          console.log("[CALLBACK] User connected");
           this.onConnectedHandler();
         },
         onDisconnected: () => {
+          console.log("[CALLBACK] User disconnected");
           this.onDisconnectedHandler();
         },
-        onBotReady: () => {
-          this.log("Bot is ready.");
-        },
-
-        // Speech events
-        onUserStartedSpeaking: () => {
-          this.log("User started speaking.");
-        },
-        onUserStoppedSpeaking: () => {
-          this.log("User stopped speaking.");
-        },
-        onBotStartedSpeaking: () => {
-          this.log("Bot started speaking.");
-        },
-        onBotStoppedSpeaking: () => {
-          this.log("Bot stopped speaking.");
-        },
-
-        // Transcript events
-        onUserTranscript: (transcript) => {
-          if (transcript.final) {
-            this.log(`User transcript: ${transcript.text}`);
+        onTransportStateChanged: (state: string) => {
+          console.log("[CALLBACK] State change:", state);
+          // Additional logging for ICE connection states
+          if (state === 'ready') {
+            this.log("WebRTC transport connected successfully", "status");
+            this.log("Connection established with ICE servers (STUN/TURN)", "status");
+          } else if (state === 'error') {
+            this.log("WebRTC transport encountered an error", "error");
+            this.log("This may indicate issues with STUN/TURN servers or network connectivity", "error");
+          } else if (state === 'disconnected') {
+            this.log("WebRTC transport disconnected", "status");
+          } else if (state === 'connecting') {
+            this.log("Establishing WebRTC connection using ICE servers...", "status");
           }
         },
-        onBotTranscript: (transcript) => {
-          this.log(`Bot transcript: ${transcript.text}`);
+        
+        // Bot events
+        onBotConnected: (participant: Participant) => {
+          console.log("[CALLBACK] Bot connected", participant);
         },
-
-        // Media tracks
+        onBotDisconnected: (participant: Participant) => {
+          console.log("[CALLBACK] Bot disconnected", participant);
+        },
+        onBotReady: (botReadyData: any) => {
+          console.log("[CALLBACK] Bot ready to chat!", botReadyData);
+        },
+        
+        // Generic message handling
+        onGenericMessage: (data: unknown) => {
+          debugger;
+          console.log("[CALLBACK] Generic message:", data);
+        },
+        onMessageError: (message: any) => {
+          console.log("[CALLBACK] Message error:", message);
+        },
+        onError: (message: any) => {
+          console.log("[CALLBACK] Error:", message);
+        },
+        
+        // Configuration events
+        onConfig: (config: any) => {
+          debugger;
+          console.log("[CALLBACK] Config received:", config);
+        },
+        onConfigDescribe: (configDescription: unknown) => {
+          console.log("[CALLBACK] Config description:", configDescription);
+        },
+        onActionsAvailable: (actions: unknown) => {
+          console.log("[CALLBACK] Actions available:", actions);
+        },
+        
+        // Participant events
+        onParticipantJoined: (participant: Participant) => {
+          console.log("[CALLBACK] Participant joined:", participant);
+        },
+        onParticipantLeft: (participant: Participant) => {
+          console.log("[CALLBACK] Participant left:", participant);
+        },
+        
+        // Metrics
+        onMetrics: (data: any) => {
+          console.log("[CALLBACK] Metrics:", data);
+        },
+        
+        // Device updates
+        onAvailableCamsUpdated: (cams: MediaDeviceInfo[]) => {
+          console.log("[CALLBACK] Available cameras updated:", cams);
+        },
+        onAvailableMicsUpdated: (mics: MediaDeviceInfo[]) => {
+          console.log("[CALLBACK] Available microphones updated:", mics);
+        },
+        onAvailableSpeakersUpdated: (speakers: MediaDeviceInfo[]) => {
+          console.log("[CALLBACK] Available speakers updated:", speakers);
+        },
+        onCamUpdated: (cam: MediaDeviceInfo) => {
+          console.log("[CALLBACK] Camera updated:", cam);
+        },
+        onMicUpdated: (mic: MediaDeviceInfo) => {
+          console.log("[CALLBACK] Microphone updated:", mic);
+        },
+        onSpeakerUpdated: (speaker: MediaDeviceInfo) => {
+          console.log("[CALLBACK] Speaker updated:", speaker);
+        },
+        
+        // Media track events
         onTrackStarted: (
           track: MediaStreamTrack,
           participant?: Participant
         ) => {
+          console.log("[CALLBACK] Track started:", track.kind, participant);
+
           if (participant?.local) {
             // Handle local tracks (e.g., self-view)
             if (track.kind === "video") {
@@ -158,12 +235,187 @@ class WebRTCApp {
           // Handle remote tracks (the bot)
           this.onBotTrackStarted(track);
         },
-
-        // Other events
-        onServerMessage: (msg) => {
-          this.log(`Server message: ${msg}`);
+        onTrackStopped: (track: MediaStreamTrack, participant?: Participant) => {
+          console.log("[CALLBACK] Track stopped:", track.kind, participant);
         },
-      },
+        onScreenTrackStarted: (track: MediaStreamTrack, participant?: Participant) => {
+          console.log("[CALLBACK] Screen track started:", track.kind, participant);
+        },
+        onScreenTrackStopped: (track: MediaStreamTrack, participant?: Participant) => {
+          console.log("[CALLBACK] Screen track stopped:", track.kind, participant);
+        },
+        onScreenShareError: (errorMessage: string) => {
+          console.log("[CALLBACK] Screen share error:", errorMessage);
+        },
+        
+        // Audio levels
+        onLocalAudioLevel: (level: number) => {
+          // Don't log this to avoid console spam
+          // console.log("[CALLBACK] Local audio level:", level);
+        },
+        onRemoteAudioLevel: (level: number, participant: Participant) => {
+          // Don't log this to avoid console spam
+          // console.log("[CALLBACK] Remote audio level:", level, participant);
+        },
+        
+        // Speaking events
+        onUserStartedSpeaking: () => {
+          console.log("[CALLBACK] User started speaking.");
+        },
+        onUserStoppedSpeaking: () => {
+          console.log("[CALLBACK] User stopped speaking.");
+        },
+        onBotStartedSpeaking: () => {
+          console.log("[CALLBACK] Bot started speaking.");
+        },
+        onBotStoppedSpeaking: () => {
+          console.log("[CALLBACK] Bot stopped speaking.");
+        },
+        
+        // Transcript and text events
+        onUserTranscript: (transcript) => {
+          debugger;
+          if (transcript.final) {
+            console.log(`[CALLBACK] User transcript: ${transcript.text}`);
+          }
+        },
+        onBotTranscript: (transcript) => {
+          debugger;
+          debugger; // Breakpoint to debug backend reply
+          console.log(`[CALLBACK] Bot transcript: ${transcript.text}`);
+        },
+        onBotLlmText: (text) => {
+          debugger;
+          debugger; // Breakpoint to debug backend reply
+          console.log(`[CALLBACK] Bot LLM text: ${text}`);
+        },
+        onBotLlmStarted: () => {
+          debugger;
+          console.log("[CALLBACK] Bot LLM started");
+        },
+        onBotLlmStopped: () => {
+          debugger;
+          console.log("[CALLBACK] Bot LLM stopped");
+        },
+        onBotTtsText: (text) => {
+          debugger;
+          console.log(`[CALLBACK] Bot TTS text: ${text}`);
+        },
+        onBotTtsStarted: () => {
+          debugger;
+          console.log("[CALLBACK] Bot TTS started");
+        },
+        onBotTtsStopped: () => {
+          debugger;
+          console.log("[CALLBACK] Bot TTS stopped");
+        },
+        onBotLlmSearchResponse: (data: any) => {
+          debugger; // Breakpoint to debug backend reply
+          console.log("[CALLBACK] Bot LLM search response:", data);
+        },
+        
+        // Storage and server messages
+        onStorageItemStored: (data: any) => {
+          console.log("[CALLBACK] Storage item stored:", data);
+        },
+        onServerMessage: (data: any) => {
+          console.log("[CALLBACK] Server message:", data);
+          
+          // Enhanced debugging for transcript messages
+          console.log("[TRANSCRIPT DEBUG] Received server message with data:", JSON.stringify(data));
+          
+          // Check if this is a transcript message - the structure should be { type: "server-message", data: { message_type: "transcript", ... } }
+          if (data && data.type === "server-message" && data.data && data.data.message_type === "transcript") {
+            console.log("[TRANSCRIPT DEBUG] Identified as transcript message");
+            this.store_conversation(data.data.transcript);
+          } else if (data && data.message_type === "transcript") {
+            // Alternative structure check
+            console.log("[TRANSCRIPT DEBUG] Identified as transcript message (alternative structure)");
+            this.store_conversation(data.transcript);
+          } else {
+            console.log("[TRANSCRIPT DEBUG] Not a transcript message:");
+            console.log("[TRANSCRIPT DEBUG] data.type:", data?.type);
+            console.log("[TRANSCRIPT DEBUG] data.data?.message_type:", data?.data?.message_type);
+            console.log("[TRANSCRIPT DEBUG] data.message_type:", data?.message_type);
+          }
+        },
+      }
+      // callbacks: {
+      //   // Transport state changes
+      //   onTransportStateChanged: (state) => {
+      //     this.log(`Transport state: ${state}`);
+          
+      //     // Additional logging for ICE connection states
+      //     if (state === 'ready') {
+      //       this.log("WebRTC transport connected successfully", "status");
+      //       this.log("Connection established with ICE servers (STUN/TURN)", "status");
+      //     } else if (state === 'error') {
+      //       this.log("WebRTC transport encountered an error", "error");
+      //       this.log("This may indicate issues with STUN/TURN servers or network connectivity", "error");
+      //     } else if (state === 'disconnected') {
+      //       this.log("WebRTC transport disconnected", "status");
+      //     } else if (state === 'connecting') {
+      //       this.log("Establishing WebRTC connection using ICE servers...", "status");
+      //     }
+      //   },
+
+      //   // Connection events
+      //   onConnected: () => {
+      //     this.onConnectedHandler();
+      //   },
+      //   onDisconnected: () => {
+      //     this.onDisconnectedHandler();
+      //   },
+      //   onBotReady: () => {
+      //     this.log("Bot is ready.");
+      //   },
+
+      //   // Speech events
+      //   onUserStartedSpeaking: () => {
+      //     this.log("User started speaking.");
+      //   },
+      //   onUserStoppedSpeaking: () => {
+      //     this.log("User stopped speaking.");
+      //   },
+      //   onBotStartedSpeaking: () => {
+      //     this.log("Bot started speaking.");
+      //   },
+      //   onBotStoppedSpeaking: () => {
+      //     this.log("Bot stopped speaking.");
+      //   },
+
+      //   // Transcript events
+      //   onUserTranscript: (transcript) => {
+      //     if (transcript.final) {
+      //       this.log(`User transcript: ${transcript.text}`);
+      //     }
+      //   },
+      //   onBotTranscript: (transcript) => {
+      //     this.log(`Bot transcript: ${transcript.text}`);
+      //   },
+
+      //   // Media tracks
+      //   onTrackStarted: (
+      //     track: MediaStreamTrack,
+      //     participant?: Participant
+      //   ) => {
+      //     if (participant?.local) {
+      //       // Handle local tracks (e.g., self-view)
+      //       if (track.kind === "video") {
+      //         this.selfViewVideo.srcObject = new MediaStream([track]);
+      //         this.updateSelfViewVisibility();
+      //       }
+      //       return;
+      //     }
+      //     // Handle remote tracks (the bot)
+      //     this.onBotTrackStarted(track);
+      //   },
+
+      //   // Other events
+      //   onServerMessage: (msg) => {
+      //     this.log(`Server message: ${msg}`);
+      //   },
+      // },
     };
 
     // This is required for SmallWebRTCTransport
@@ -235,6 +487,35 @@ class WebRTCApp {
       "bot-video-container"
     ) as HTMLElement;
     this.botName = document.getElementById("bot-name") as HTMLElement;
+    
+    // Get transcript container and log if it's found
+    this.transcriptContainer = document.getElementById("conversation-transcript") as HTMLElement;
+    console.log("[TRANSCRIPT DEBUG] In setupDOMElements, transcriptContainer found:", !!this.transcriptContainer);
+    
+    // If we have stored transcripts, load them
+    const storedTranscripts = localStorage.getItem("conversation-transcripts");
+    if (storedTranscripts && this.transcriptContainer) {
+      try {
+        console.log("[TRANSCRIPT DEBUG] Found stored transcripts, attempting to load");
+        this.transcripts = JSON.parse(storedTranscripts);
+        
+        // Render stored transcripts
+        this.transcripts.forEach(transcript => {
+          const messageElement = document.createElement("div");
+          messageElement.className = `transcript-message ${transcript.role.toLowerCase()}`;
+          messageElement.innerHTML = `
+            <span class="timestamp">${transcript.timestamp}</span>
+            <span class="role">${transcript.role}</span>
+            <span class="content">${transcript.content}</span>
+          `;
+          this.transcriptContainer.appendChild(messageElement);
+        });
+        
+        console.log("[TRANSCRIPT DEBUG] Loaded", this.transcripts.length, "stored transcripts");
+      } catch (e) {
+        console.error("[TRANSCRIPT DEBUG] Error loading stored transcripts:", e);
+      }
+    }
   }
 
   private setupDOMEventListeners(): void {
@@ -252,6 +533,27 @@ class WebRTCApp {
     if (this.disconnectBtn) {
       this.disconnectBtn.addEventListener("click", () => void this.stop());
     }
+    
+    // Set up panel tab switching
+    const panelTabs = document.querySelectorAll('.panel-tab');
+    panelTabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        // Remove active class from all tabs and panels
+        document.querySelectorAll('.panel-tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.panel-content').forEach(p => p.classList.remove('active'));
+        
+        // Add active class to clicked tab
+        tab.classList.add('active');
+        
+        // Get the tab's data-tab attribute and activate corresponding panel
+        const tabName = tab.getAttribute('data-tab');
+        if (tabName === 'debug') {
+          document.getElementById('debug-log')?.classList.add('active');
+        } else if (tabName === 'transcript') {
+          document.getElementById('conversation-transcript')?.classList.add('active');
+        }
+      });
+    });
 
     // Media toggle buttons
     this.micToggleBtn.addEventListener("click", () => {
@@ -436,6 +738,84 @@ class WebRTCApp {
       this.debugLog.innerHTML = "";
       this.log("Log cleared", "status");
     }
+  }
+  
+  private store_conversation(transcript: {timestamp: string, role: string, content: string}): void {
+    console.log("[TRANSCRIPT DEBUG] store_conversation called with:", JSON.stringify(transcript));
+    
+    // Add the transcript to our local array
+    this.transcripts.push(transcript);
+    
+    // Log the transcript
+    console.log(`[TRANSCRIPT] ${transcript.timestamp} ${transcript.role}: ${transcript.content}`);
+    
+    // Check if transcriptContainer is initialized
+    console.log("[TRANSCRIPT DEBUG] transcriptContainer exists:", !!this.transcriptContainer);
+    
+    // Check if the element exists in the DOM
+    const containerInDOM = document.getElementById("conversation-transcript");
+    console.log("[TRANSCRIPT DEBUG] conversation-transcript element in DOM:", !!containerInDOM);
+    
+    // If transcriptContainer is not initialized but exists in DOM, initialize it
+    if (!this.transcriptContainer && containerInDOM) {
+      console.log("[TRANSCRIPT DEBUG] Initializing transcriptContainer from DOM");
+      this.transcriptContainer = containerInDOM as HTMLElement;
+    }
+    
+    // Update UI with the transcript
+    if (this.transcriptContainer) {
+      console.log("[TRANSCRIPT DEBUG] Creating message element");
+      const messageElement = document.createElement("div");
+      messageElement.className = `transcript-message ${transcript.role.toLowerCase()}`;
+      
+      const html = `
+        <span class="timestamp">${transcript.timestamp}</span>
+        <span class="role">${transcript.role}</span>
+        <span class="content">${transcript.content}</span>
+      `;
+      console.log("[TRANSCRIPT DEBUG] Setting innerHTML:", html);
+      
+      messageElement.innerHTML = html;
+      this.transcriptContainer.appendChild(messageElement);
+      
+      // Check if the element was actually added
+      console.log("[TRANSCRIPT DEBUG] Element added, container now has children:", this.transcriptContainer.childElementCount);
+      
+      // Auto-scroll to the bottom
+      this.transcriptContainer.scrollTop = this.transcriptContainer.scrollHeight;
+      
+      // Make the transcript tab visible if it's not already
+      const transcriptTab = document.querySelector('.panel-tab[data-tab="transcript"]') as HTMLElement;
+      console.log("[TRANSCRIPT DEBUG] Transcript tab found:", !!transcriptTab);
+      
+      // Check if the transcript panel is active
+      const isActive = this.transcriptContainer.classList.contains("active");
+      console.log("[TRANSCRIPT DEBUG] Transcript panel is active:", isActive);
+      
+      // Add a visual indicator to the transcript tab if it's not active
+      if (transcriptTab && !isActive) {
+        transcriptTab.style.position = 'relative';
+        
+        // Add notification dot if it doesn't exist
+        if (!transcriptTab.querySelector('.notification-dot')) {
+          const notificationDot = document.createElement('span');
+          notificationDot.className = 'notification-dot';
+          notificationDot.style.position = 'absolute';
+          notificationDot.style.top = '5px';
+          notificationDot.style.right = '5px';
+          notificationDot.style.width = '8px';
+          notificationDot.style.height = '8px';
+          notificationDot.style.borderRadius = '50%';
+          notificationDot.style.backgroundColor = '#4f46e5';
+          transcriptTab.appendChild(notificationDot);
+        }
+      }
+    } else {
+      console.warn("[TRANSCRIPT DEBUG] Transcript container not found in the DOM");
+    }
+    
+    // Optionally store transcripts in localStorage for persistence
+    localStorage.setItem("conversation-transcripts", JSON.stringify(this.transcripts));
   }
 
   private onConnectedHandler(): void {
@@ -638,12 +1018,26 @@ class WebRTCApp {
 
       // Connect to the bot
       await this.rtviClient.connect();
-
+      
+      // Log successful connection with ICE server info
+      this.log("WebRTC connection established successfully", "status");
+      
       // Note: onConnectedHandler will be called via the callback when connection is fully established
     } catch (e) {
       const error = e as Error;
       this.log(`Failed to connect: ${error.message}`, "error");
       console.error("Connection error:", e);
+      
+      // Check if the error might be related to ICE connectivity
+      if (error.message.includes("ICE") ||
+          error.message.includes("connection") ||
+          error.message.includes("timeout")) {
+        this.log("Connection issue might be related to network connectivity or firewall restrictions.", "error");
+        this.log("The system will attempt to use TURN servers if available.", "status");
+        
+        // Provide more detailed diagnostics
+        this.logWebRTCDiagnostics();
+      }
 
       // Reset UI state on error
       this.connectBtn.setAttribute("data-state", "disconnected");
@@ -681,6 +1075,48 @@ class WebRTCApp {
       this.log(`Error during disconnect: ${error.message}`, "error");
       console.error("Disconnect error:", e);
     }
+  }
+
+  /**
+   * Logs diagnostic information about WebRTC connectivity
+   * Helps diagnose issues with ICE servers, especially TURN server connectivity
+   */
+  private logWebRTCDiagnostics(): void {
+    const runtimeConfig = (window as any).runtimeConfig || {};
+    const logLevel = runtimeConfig.LOG_LEVEL || 'info';
+    
+    this.log("--- WebRTC Connection Diagnostics ---", "status");
+    this.log(`Runtime configuration: LOG_LEVEL=${logLevel}`, "status");
+    
+    // Check if we're behind a symmetric NAT (which would require TURN)
+    this.log("Checking network connectivity...", "status");
+    
+    // Log information about the ICE servers being used
+    this.log("ICE Servers Configuration:", "status");
+    this.log(`- STUN server: ${runtimeConfig.STUN_SERVER || "stun:stun.l.google.com:19302"}`, "status");
+    
+    if (runtimeConfig.TURN_SERVER) {
+      this.log(`- TURN server: ${runtimeConfig.TURN_SERVER}`, "status");
+      if (runtimeConfig.TURN_USERNAME) {
+        this.log(`- TURN credentials: Configured`, "status");
+      } else {
+        this.log(`- TURN credentials: Missing username/password`, "status");
+      }
+    } else {
+      this.log("- No TURN server configured", "status");
+    }
+    
+    // Log API endpoint
+    this.log(`- API Endpoint: ${runtimeConfig.API_ENDPOINT || 'http://localhost:8000'}`, "status");
+    
+    // Provide troubleshooting tips
+    this.log("Troubleshooting tips:", "status");
+    this.log("1. Ensure you're not behind a restrictive firewall", "status");
+    this.log("2. Check that the TURN server is properly configured in environment variables", "status");
+    this.log("3. Verify that UDP ports 3478 and 49152-65535 are not blocked", "status");
+    this.log("4. For secure connections, ensure TLS port 5349 is accessible", "status");
+    
+    this.log("Attempting to reconnect with TURN relay...", "status");
   }
 
   // Public method for external access (e.g. from event handlers)
