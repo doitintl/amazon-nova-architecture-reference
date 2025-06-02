@@ -41,13 +41,18 @@ body {
 .bot-info {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 5px;
   font-weight: 500;
   color: #333;
 }
 
 .pipecat-logo {
   height: 24px;
+  width: auto;
+}
+
+.doit-logo {
+  height: 42px;
   width: auto;
 }
 
