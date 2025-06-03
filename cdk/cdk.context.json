@@ -11,5 +11,9 @@
     "ap-southeast-1a",
     "ap-southeast-1b",
     "ap-southeast-1c"
-  ]
+  ],
+  "hosted-zone:account=654654616949:domainName=richardkang.aws.sg-pod-1.cs.doit-playgrounds.dev:region=us-east-1": {
+    "Id": "/hostedzone/Z07396271VX22CDY7FMTX",
+    "Name": "richardkang.aws.sg-pod-1.cs.doit-playgrounds.dev."
+  }
 }

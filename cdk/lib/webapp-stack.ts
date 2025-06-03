@@ -5,11 +5,15 @@ import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import * as ecr from 'aws-cdk-lib/aws-ecr';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
+import * as acm from 'aws-cdk-lib/aws-certificatemanager';
+import * as route53 from 'aws-cdk-lib/aws-route53';
 import { Construct } from 'constructs';
+import { DnsHelper } from './dns-config';
 
 interface WebappStackProps extends cdk.StackProps {
   vpc: ec2.Vpc;
   apiEndpoint?: string;
+  dnsHelper?: DnsHelper;
 }
 
 export class WebappStack extends cdk.Stack {
@@ -131,16 +135,61 @@ export class WebappStack extends cdk.Stack {
       },
     });
 
-    // Add listener to the load balancer
-    const listener = this.loadBalancer.addListener('WebappListener', {
+    // Add HTTP listener to the load balancer
+    const httpListener = this.loadBalancer.addListener('WebappHttpListener', {
       port: 80,
       open: true,
     });
 
-    // Add target group to the listener
-    listener.addTargetGroups('WebappTargetGroup', {
+    // Add target group to the HTTP listener
+    httpListener.addTargetGroups('WebappTargetGroup', {
       targetGroups: [targetGroup],
     });
+    
+    // Add HTTPS listener if DNS helper is provided
+    if (props.dnsHelper) {
+      // Get the certificate for the webapp
+      const certificate = props.dnsHelper.getWebappCertificate();
+      
+      // Add HTTPS listener with the certificate
+      const httpsListener = this.loadBalancer.addListener('WebappHttpsListener', {
+        port: 443,
+        protocol: elbv2.ApplicationProtocol.HTTPS,
+        certificates: [certificate],
+        sslPolicy: elbv2.SslPolicy.RECOMMENDED,
+        open: true,
+      });
+      
+      // Add target group to the HTTPS listener
+      httpsListener.addTargetGroups('WebappHttpsTargetGroup', {
+        targetGroups: [targetGroup],
+      });
+      
+      // Redirect HTTP to HTTPS
+      httpListener.addAction('HttpToHttpsRedirect', {
+        priority: 1,
+        conditions: [
+          elbv2.ListenerCondition.pathPatterns(['/*']),
+        ],
+        action: elbv2.ListenerAction.redirect({
+          protocol: 'HTTPS',
+          port: '443',
+          host: '#{host}',
+          path: '/#{path}',
+          query: '#{query}',
+        }),
+      });
+      
+      // Create DNS record for the webapp
+      const dnsRecord = props.dnsHelper.createWebappDnsRecord(this.loadBalancer);
+      
+      // Output the webapp domain name
+      new cdk.CfnOutput(this, 'WebappDomainName', {
+        value: props.dnsHelper.getWebappDomainName(),
+        description: 'The domain name of the webapp',
+        exportName: 'NovaSonicWebappDomainName',
+      });
+    }
 
     // Create the Fargate service
     this.service = new ecs.FargateService(this, 'WebappService', {
@@ -174,6 +223,12 @@ export class WebappStack extends cdk.Stack {
       value: this.loadBalancer.loadBalancerDnsName,
       description: 'The DNS name of the webapp load balancer',
       exportName: 'NovaSonicWebappLBDNS',
+    });
+    
+    // Output the load balancer URL
+    new cdk.CfnOutput(this, 'WebappLoadBalancerUrl', {
+      value: `http://${this.loadBalancer.loadBalancerDnsName}`,
+      description: 'The URL of the webapp load balancer',
     });
   }
 }

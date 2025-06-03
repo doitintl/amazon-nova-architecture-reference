@@ -8,12 +8,15 @@ import * as logs from 'aws-cdk-lib/aws-logs';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as autoscaling from 'aws-cdk-lib/aws-autoscaling';
+import * as acm from 'aws-cdk-lib/aws-certificatemanager';
+import * as route53 from 'aws-cdk-lib/aws-route53';
 import { Construct } from 'constructs';
-import { hasSubscribers } from 'diagnostics_channel';
+import { DnsHelper } from './dns-config';
 
 interface ApiStackProps extends cdk.StackProps {
   vpc: ec2.Vpc;
   webappLoadBalancerDns?: string;
+  dnsHelper?: DnsHelper;
 }
 
 export class ApiStack extends cdk.Stack {
@@ -175,7 +178,7 @@ export class ApiStack extends cdk.Stack {
     // Allow UDP traffic for WebRTC on the WebRTC load balancer
     webrtcLbSecurityGroup.addIngressRule(
       ec2.Peer.anyIpv4(),
-      ec2.Port.udpRange(0, 65535),
+      ec2.Port.udpRange(10000, 65535),
       'Allow UDP traffic for WebRTC functionality on the load balancer'
     );
 
@@ -196,7 +199,7 @@ export class ApiStack extends cdk.Stack {
     // Allow UDP traffic for WebRTC functionality (ports 3000-4000)
     apiSecurityGroup.addIngressRule(
       ec2.Peer.anyIpv4(),
-      ec2.Port.udpRange(3000, 4000),
+      ec2.Port.udpRange(10000, 65535),
       'Allow UDP traffic for WebRTC functionality'
     );
 
@@ -260,32 +263,46 @@ export class ApiStack extends cdk.Stack {
       defaultAction: elbv2.ListenerAction.forward([httpTargetGroup]),
     });
 
-    // Add HTTPS listener (commented out - would need a certificate)
-    /*
-    const certificate = elbv2.ListenerCertificate.fromArn('arn:aws:acm:region:account:certificate/certificate-id');
-    
-    const httpsListener = this.apiLoadBalancer.addListener('ApiHttpsListener', {
-      port: 443,
-      protocol: elbv2.ApplicationProtocol.HTTPS,
-      certificates: [certificate],
-      defaultAction: elbv2.ListenerAction.forward([httpTargetGroup]),
-      // Enable HTTP to HTTPS redirection
-      sslPolicy: elbv2.SslPolicy.RECOMMENDED,
-    });
-    
-    // Redirect HTTP to HTTPS
-    httpListener.addAction('HttpToHttpsRedirect', {
-      priority: 1,
-      conditions: [
-        elbv2.ListenerCondition.pathPatterns(['/*']),
-      ],
-      action: elbv2.ListenerAction.redirect({
-        protocol: 'HTTPS',
-        port: '443',
-        statusCode: 'HTTP_301',
-      }),
-    });
-    */
+    // Add HTTPS listener if DNS helper is provided
+    if (props.dnsHelper) {
+      // Get the certificate for the API
+      const certificate = props.dnsHelper.getApiCertificate();
+      
+      // Add HTTPS listener with the certificate
+      const httpsListener = this.apiLoadBalancer.addListener('ApiHttpsListener', {
+        port: 443,
+        protocol: elbv2.ApplicationProtocol.HTTPS,
+        certificates: [certificate],
+        defaultAction: elbv2.ListenerAction.forward([httpTargetGroup]),
+        sslPolicy: elbv2.SslPolicy.RECOMMENDED,
+        open: true,
+      });
+      
+      // Redirect HTTP to HTTPS
+      httpListener.addAction('HttpToHttpsRedirect', {
+        priority: 1,
+        conditions: [
+          elbv2.ListenerCondition.pathPatterns(['/*']),
+        ],
+        action: elbv2.ListenerAction.redirect({
+          protocol: 'HTTPS',
+          port: '443',
+          host: '#{host}',
+          path: '/#{path}',
+          query: '#{query}',
+        }),
+      });
+      
+      // Create DNS record for the API
+      const dnsRecord = props.dnsHelper.createApiDnsRecord(this.apiLoadBalancer);
+      
+      // Output the API domain name
+      new cdk.CfnOutput(this, 'ApiDomainName', {
+        value: props.dnsHelper.getApiDomainName(),
+        description: 'The domain name of the API',
+        exportName: 'NovaSonicApiDomainName',
+      });
+    }
 
     // // Create a separate Network Load Balancer for WebRTC UDP traffic
     // this.webrtcLoadBalancer = new elbv2.NetworkLoadBalancer(this, 'WebRtcLB', {
@@ -369,6 +386,12 @@ export class ApiStack extends cdk.Stack {
       value: this.apiLoadBalancer.loadBalancerDnsName,
       description: 'The DNS name of the API load balancer',
       exportName: 'NovaSonicApiLBDNS',
+    });
+    
+    // Output the API load balancer URL
+    new cdk.CfnOutput(this, 'ApiLoadBalancerUrl', {
+      value: `http://${this.apiLoadBalancer.loadBalancerDnsName}`,
+      description: 'The URL of the API load balancer',
     });
 
     // // Output the WebRTC load balancer DNS name

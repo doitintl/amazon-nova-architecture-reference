@@ -13,6 +13,7 @@ The infrastructure consists of the following components:
 2. **API Stack**
    - ECS Fargate service for the Nova Sonic API
    - Application Load Balancer for distributing traffic
+   - HTTPS support with AWS Certificate Manager
    - DynamoDB table for storing conversation history
    - IAM roles with permissions for AWS services (Transcribe, Bedrock, DynamoDB)
    - Auto-scaling configuration based on CPU utilization
@@ -20,7 +21,13 @@ The infrastructure consists of the following components:
 3. **Webapp Stack**
    - ECS Fargate service for the Nova Sonic WebRTC frontend
    - Application Load Balancer for distributing traffic
+   - HTTPS support with AWS Certificate Manager
    - Auto-scaling configuration based on CPU utilization
+
+4. **DNS Configuration**
+   - Route 53 DNS records for custom domains
+   - Integration with AWS Certificate Manager for SSL/TLS certificates
+   - HTTP to HTTPS redirection for secure access
 
 ## Prerequisites
 
@@ -77,6 +84,8 @@ cdk deploy NovaSonicWebappStack
 - IAM roles follow the principle of least privilege
 - Containers run in private subnets with outbound internet access through NAT Gateway
 - Load balancers are the only components exposed to the internet
+- HTTPS is configured for secure communication and to enable WebRTC functionality
+- HTTP to HTTPS redirection is implemented for enhanced security
 
 ## Cost Optimization
 
@@ -86,10 +95,36 @@ cdk deploy NovaSonicWebappStack
 
 ## Customization
 
+### Environment Variables
+
 You can customize the deployment by modifying the following environment variables:
 
 - `AWS_REGION`: The AWS region to deploy to (default: us-east-1)
 - `AWS_ACCOUNT_ID`: Your AWS account ID
+
+### HTTPS Configuration
+
+To enable HTTPS (required for WebRTC with microphone access):
+
+1. Create a `dns-config.json` file in the root directory:
+
+```json
+{
+  "domainName": "example.com",
+  "webappSubdomain": "app",
+  "apiSubdomain": "api",
+  "webappCertificateArn": "arn:aws:acm:REGION:ACCOUNT_ID:certificate/CERTIFICATE_ID_FOR_WEBAPP",
+  "apiCertificateArn": "arn:aws:acm:REGION:ACCOUNT_ID:certificate/CERTIFICATE_ID_FOR_API"
+}
+```
+
+2. The CDK deployment will automatically:
+   - Configure HTTPS listeners on both load balancers
+   - Set up HTTP to HTTPS redirection
+   - Create Route 53 records pointing to the load balancers
+   - Update the API endpoint URL in the webapp configuration
+
+For detailed instructions, see the `HTTPS_SETUP.md` file.
 
 ## Cleanup
 

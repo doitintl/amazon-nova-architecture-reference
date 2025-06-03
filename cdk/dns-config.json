@@ -1,0 +1,7 @@
+{
+  "domainName": "example.com",
+  "webappSubdomain": "app",
+  "apiSubdomain": "api",
+  "webappCertificateArn": "arn:aws:acm:REGION:ACCOUNT_ID:certificate/CERTIFICATE_ID_FOR_WEBAPP",
+  "apiCertificateArn": "arn:aws:acm:REGION:ACCOUNT_ID:certificate/CERTIFICATE_ID_FOR_API"
+}
