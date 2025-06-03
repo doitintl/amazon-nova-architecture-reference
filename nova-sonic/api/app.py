@@ -50,6 +50,7 @@ pcs_map: Dict[str, SmallWebRTCConnection] = {}
 ice_servers = [
     IceServer(
         urls=os.getenv("STUN_SERVER", "stun:stun.l.google.com:19302"),
+        # urls=os.getenv("STUN_SERVER", "stun:localhost:3478"),
     )
 ]
 

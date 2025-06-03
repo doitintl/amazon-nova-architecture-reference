@@ -500,7 +500,7 @@ create_booking_function = FunctionSchema(
         "date": {
             "type": "string",
             "format": "date",
-            "description": "The date of the booking in the format of YYYYMMDD",
+            "description": "The date of the booking, in the format of YYYYMMDD"
         },
         "hour": {
             "type": "string",

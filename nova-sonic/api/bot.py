@@ -97,7 +97,7 @@ async def run_bot(webrtc_connection: SmallWebRTCConnection, args: argparse.Names
     
     # Create a callback handler for transcription events
     transcript = TranscriptProcessor()
-    transcript_handler = TranscriptHandler()
+    transcript_handler = TranscriptHandler(transport)
 
     # Build the pipeline
     pipeline = Pipeline(
@@ -136,10 +136,18 @@ async def run_bot(webrtc_connection: SmallWebRTCConnection, args: argparse.Names
     @transport.event_handler("on_client_connected")
     async def on_client_connected(transport, client):
         logger.info("Client connected")
+        # Ensure the transcript handler has the latest transport
+        transcript_handler.set_transport(transport)
+        logger.info("Updated transport in transcript handler")
+        
         # Kick off the conversation
         await task.queue_frames([context_aggregator.user().get_context_frame()])
         # Trigger the first assistant response
         await llm.trigger_assistant_response()
+        
+        # Send test transcript messages to verify transcript functionality
+        logger.info("Sending test transcript messages")
+        await transcript_handler.send_test_transcript_message(transcript)
 
     # Handle client disconnection events
     @transport.event_handler("on_client_disconnected")

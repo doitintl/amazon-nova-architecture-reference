@@ -162,7 +162,6 @@ class WebRTCApp {
         
         // Generic message handling
         onGenericMessage: (data: unknown) => {
-          debugger;
           console.log("[CALLBACK] Generic message:", data);
         },
         onMessageError: (message: any) => {
@@ -174,7 +173,6 @@ class WebRTCApp {
         
         // Configuration events
         onConfig: (config: any) => {
-          debugger;
           console.log("[CALLBACK] Config received:", config);
         },
         onConfigDescribe: (configDescription: unknown) => {
@@ -274,43 +272,32 @@ class WebRTCApp {
         
         // Transcript and text events
         onUserTranscript: (transcript) => {
-          debugger;
           if (transcript.final) {
             console.log(`[CALLBACK] User transcript: ${transcript.text}`);
           }
         },
         onBotTranscript: (transcript) => {
-          debugger;
-          debugger; // Breakpoint to debug backend reply
           console.log(`[CALLBACK] Bot transcript: ${transcript.text}`);
         },
         onBotLlmText: (text) => {
-          debugger;
-          debugger; // Breakpoint to debug backend reply
           console.log(`[CALLBACK] Bot LLM text: ${text}`);
         },
         onBotLlmStarted: () => {
-          debugger;
           console.log("[CALLBACK] Bot LLM started");
         },
         onBotLlmStopped: () => {
-          debugger;
           console.log("[CALLBACK] Bot LLM stopped");
         },
         onBotTtsText: (text) => {
-          debugger;
           console.log(`[CALLBACK] Bot TTS text: ${text}`);
         },
         onBotTtsStarted: () => {
-          debugger;
           console.log("[CALLBACK] Bot TTS started");
         },
         onBotTtsStopped: () => {
-          debugger;
           console.log("[CALLBACK] Bot TTS stopped");
         },
         onBotLlmSearchResponse: (data: any) => {
-          debugger; // Breakpoint to debug backend reply
           console.log("[CALLBACK] Bot LLM search response:", data);
         },
         
