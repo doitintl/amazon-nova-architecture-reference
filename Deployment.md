@@ -144,9 +144,30 @@ Key components:
 
 Follow these steps to deploy the application:
 
-### 1. Synthesize the CDK app
+### 1. Configure HTTPS (Optional but Recommended)
 
-First, synthesize the CDK app to ensure there are no errors:
+For WebRTC to work properly with microphone access from browsers, HTTPS is required. To configure HTTPS:
+
+1. Create a `dns-config.json` file in the `cdk` directory:
+   ```bash
+   cd cdk
+   cp dns-config.json.example dns-config.json  # If example exists, otherwise create it
+   ```
+
+2. Edit the file with your domain and certificate information:
+   ```json
+   {
+     "domainName": "example.com",
+     "webappSubdomain": "app",
+     "apiSubdomain": "api",
+     "webappCertificateArn": "arn:aws:acm:REGION:ACCOUNT_ID:certificate/CERTIFICATE_ID_FOR_WEBAPP",
+     "apiCertificateArn": "arn:aws:acm:REGION:ACCOUNT_ID:certificate/CERTIFICATE_ID_FOR_API"
+   }
+   ```
+
+### 2. Synthesize the CDK app
+
+Synthesize the CDK app to ensure there are no errors:
 
 ```bash
 cd cdk
@@ -155,7 +176,7 @@ cdk synth
 
 This command generates the CloudFormation templates that will be used for deployment.
 
-### 2. Deploy the Network Stack
+### 3. Deploy the Network Stack
 
 Deploy the network stack first:
 
@@ -165,7 +186,7 @@ cdk deploy NovaSonicNetworkStack
 
 This will create the VPC and networking infrastructure. Note the outputs, especially the VPC ID.
 
-### 3. Deploy the API Stack
+### 4. Deploy the API Stack
 
 Deploy the API stack next:
 
@@ -177,12 +198,13 @@ This will:
 - Build the API Docker image
 - Push it to Amazon ECR
 - Create the ECS task definition and service
-- Set up the load balancers
+- Set up the load balancers with HTTP/HTTPS support
 - Create the DynamoDB table
+- Create Route53 DNS records (if HTTPS is configured)
 
-Note the outputs, especially the API load balancer DNS name.
+Note the outputs, especially the API load balancer DNS name or domain name.
 
-### 4. Deploy the Web Application Stack
+### 5. Deploy the Web Application Stack
 
 Finally, deploy the web application stack:
 
@@ -194,10 +216,11 @@ This will:
 - Build the web application Docker image
 - Push it to Amazon ECR
 - Create the ECS task definition and service
-- Set up the load balancer
+- Set up the load balancer with HTTP/HTTPS support
 - Configure the web application to connect to the API service
+- Create Route53 DNS records (if HTTPS is configured)
 
-### 5. Deploy All Stacks at Once (Alternative)
+### 6. Deploy All Stacks at Once (Alternative)
 
 Alternatively, you can deploy all stacks at once:
 
@@ -211,10 +234,22 @@ This will deploy the stacks in the correct order based on their dependencies.
 
 After deployment, verify that the application is working correctly:
 
-1. Access the web application using the WebappLoadBalancerDNS output from the CDK deployment:
-   ```
-   http://<WebappLoadBalancerDNS>
-   ```
+1. Access the web application:
+   - If using HTTPS with a custom domain:
+     ```
+     https://<webappSubdomain>.<domainName>
+     ```
+     Example: `https://app.example.com`
+   
+   - If using the default configuration:
+     ```
+     http://<WebappLoadBalancerDNS>
+     ```
+
+2. Verify that HTTPS is working correctly (if configured):
+   - The browser should show a secure connection (lock icon)
+   - HTTP requests should automatically redirect to HTTPS
+   - Microphone access should work properly (requires HTTPS)
 
 2. Check that the ECS services are running:
    ```bash
@@ -259,11 +294,13 @@ Here are some common issues and their solutions:
    - Check that the API endpoint environment variable is correctly set
    - Verify that the security groups allow traffic between the web application and API
    - Check the API service logs for connection errors
+   - If using HTTPS, ensure the certificates are valid and properly configured
 
 2. **WebRTC Connection Failures**:
    - Ensure the UDP ports (3000-4000) are open in the security groups
    - Verify that the STUN server is correctly configured
    - Check browser console for WebRTC connection errors
+   - Ensure you're using HTTPS if accessing from a browser (required for microphone access)
 
 3. **Nova Sonic Integration Issues**:
    - Verify that the AWS region has Nova Sonic available
@@ -314,12 +351,42 @@ To avoid incurring charges, delete the resources when they are no longer needed:
 
 ### Custom Domain and HTTPS
 
-To use a custom domain and HTTPS:
+The application now includes built-in support for custom domains and HTTPS, which is essential for WebRTC to work properly with microphone access from browsers.
 
-1. Register a domain in Amazon Route 53 or use an existing domain
-2. Create an SSL certificate in AWS Certificate Manager
-3. Uncomment and update the HTTPS listener configuration in `api-stack.ts` and `webapp-stack.ts`
-4. Create Route 53 records pointing to the load balancers
+To enable HTTPS:
+
+1. **Register a domain in Amazon Route 53** or use an existing domain
+2. **Create SSL certificates in AWS Certificate Manager**:
+   - Request a certificate for your webapp subdomain (e.g., `app.example.com`)
+   - Request a certificate for your API subdomain (e.g., `api.example.com`)
+   - Complete the domain validation process (typically via DNS validation)
+   - Note the ARNs of the certificates
+
+3. **Configure DNS settings**:
+   - Create or edit the `cdk/dns-config.json` file with your domain and certificate information:
+     ```json
+     {
+       "domainName": "example.com",
+       "webappSubdomain": "app",
+       "apiSubdomain": "api",
+       "webappCertificateArn": "arn:aws:acm:REGION:ACCOUNT_ID:certificate/CERTIFICATE_ID_FOR_WEBAPP",
+       "apiCertificateArn": "arn:aws:acm:REGION:ACCOUNT_ID:certificate/CERTIFICATE_ID_FOR_API"
+     }
+     ```
+
+4. **Deploy the application**:
+   - The CDK deployment will automatically:
+     - Configure HTTPS listeners on both load balancers
+     - Set up HTTP to HTTPS redirection
+     - Create Route 53 records pointing to the load balancers
+     - Update the API endpoint URL in the webapp configuration to use HTTPS
+
+5. **Verify the configuration**:
+   - Access your webapp at `https://app.example.com`
+   - The API will be available at `https://api.example.com`
+   - WebRTC functionality should now work properly with microphone access
+
+For more detailed instructions, refer to the `cdk/HTTPS_SETUP.md` file.
 
 ### Scaling Configuration
 
