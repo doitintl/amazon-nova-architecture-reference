@@ -1,8 +1,6 @@
 import * as cdk from 'aws-cdk-lib';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
-import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
-import * as ecr from 'aws-cdk-lib/aws-ecr';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as s3 from 'aws-cdk-lib/aws-s3';
@@ -10,120 +8,36 @@ import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as autoscaling from 'aws-cdk-lib/aws-autoscaling';
 import * as acm from 'aws-cdk-lib/aws-certificatemanager';
 import * as route53 from 'aws-cdk-lib/aws-route53';
+import * as ecr_assets from 'aws-cdk-lib/aws-ecr-assets';
+import * as path from 'path';
 import { Construct } from 'constructs';
 import { DnsHelper } from './dns-config';
 
-interface ApiStackProps extends cdk.StackProps {
+interface ApiEc2StackProps extends cdk.StackProps {
   vpc: ec2.Vpc;
   webappLoadBalancerDns?: string;
   dnsHelper?: DnsHelper;
-  /**
-   * DynamoDB table for conversation history
-   */
-  dynamoDbTable: dynamodb.Table;
+  dynamoDbTable: dynamodb.Table; // DynamoDB table for conversation history
 }
 
-export class ApiStack extends cdk.Stack {
-  public readonly service: ecs.BaseService;
+export class ApiEc2Stack extends cdk.Stack {
   public readonly apiLoadBalancer: elbv2.ApplicationLoadBalancer;
-  // public readonly webrtcLoadBalancer: elbv2.NetworkLoadBalancer;
   public readonly table: dynamodb.Table;
-  public readonly cluster: ecs.Cluster;
+  public readonly autoScalingGroup: autoscaling.AutoScalingGroup;
 
-  constructor(scope: Construct, id: string, props: ApiStackProps) {
+  constructor(scope: Construct, id: string, props: ApiEc2StackProps) {
     super(scope, id, props);
 
     // Use the provided DynamoDB table
     this.table = props.dynamoDbTable;
 
-    // Create ECS Cluster
-    this.cluster = new ecs.Cluster(this, 'ApiCluster', {
-      vpc: props.vpc,
-    });
-    
-    // Create security group for the service
+    // Create security group for the API
     const apiSecurityGroup = new ec2.SecurityGroup(this, 'ApiSecurityGroup', {
       vpc: props.vpc,
       description: 'Security group for Nova Sonic API',
       allowAllOutbound: true,
     });
     
-    // Variables for later use
-    let capacityProvider: ecs.AsgCapacityProvider | undefined;
-    let autoScalingGroup: autoscaling.AutoScalingGroup | undefined;
-
-    // For Fargate, add Fargate capacity provider
-    this.cluster.addCapacity('DefaultFargateCapacity', {
-      maxCapacity: 10,
-      minCapacity: 1,
-      instanceType: new ec2.InstanceType('t3.medium'),
-    });
-
-    // Create a log group for the container
-    const logGroup = new logs.LogGroup(this, 'ApiLogGroup', {
-      logGroupName: '/ecs/nova-sonic-api',
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
-      retention: logs.RetentionDays.ONE_WEEK,
-    });
-
-    // Create a task execution role
-    const executionRole = new iam.Role(this, 'ApiTaskExecutionRole', {
-      assumedBy: new iam.ServicePrincipal('ecs-tasks.amazonaws.com'),
-      managedPolicies: [
-        iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AmazonECSTaskExecutionRolePolicy'),
-      ],
-    });
-
-    // Create a task role with permissions to access AWS services
-    const taskRole = new iam.Role(this, 'ApiTaskRole', {
-      assumedBy: new iam.ServicePrincipal('ecs-tasks.amazonaws.com'),
-    });
-
-    // Add permissions for AWS services used by the API
-    taskRole.addManagedPolicy(iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonDynamoDBFullAccess'));
-    taskRole.addManagedPolicy(iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonTranscribeFullAccess'));
-    taskRole.addManagedPolicy(iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonBedrockFullAccess'));
-
-    // Grant permissions to the DynamoDB table
-    this.table.grantReadWriteData(taskRole);
-// Create a task definition based on compute type
-let taskDefinition: ecs.TaskDefinition;
-let container: ecs.ContainerDefinition;
-
-  // Create a task definition for Fargate
-  taskDefinition = new ecs.FargateTaskDefinition(this, 'ApiTaskDef', {
-    executionRole: executionRole,
-    taskRole: taskRole,
-    cpu: 2048, // 2 vCPU
-    memoryLimitMiB: 4096, // 4 GB
-  });
-  
-  // Add container to the Fargate task definition
-  container = taskDefinition.addContainer('ApiContainer', {
-    image: ecs.ContainerImage.fromAsset('../nova-sonic/api', {
-      platform: cdk.aws_ecr_assets.Platform.LINUX_ARM64,
-    }),
-    logging: ecs.LogDrivers.awsLogs({
-      streamPrefix: 'api',
-      logGroup: logGroup,
-    }),
-    environment: {
-      'AWS_REGION': this.region,
-      'DYNAMODB_TABLE_NAME': this.table.tableName,
-      'STUN_SERVER': 'stun:stun.l.google.com:19302',
-      'HOST': '0.0.0.0',
-      'PORT': '8000',
-      'LOG_LEVEL': 'INFO',
-      'NOVA_SONIC_VOICE_ID': 'tiffany',
-    },
-    portMappings: [
-      {
-        containerPort: 8000,
-        protocol: ecs.Protocol.TCP,
-      }
-    ],
-  });
-
     // Create security group for the API load balancer
     const apiLbSecurityGroup = new ec2.SecurityGroup(this, 'ApiLBSecurityGroup', {
       vpc: props.vpc,
@@ -171,7 +85,7 @@ let container: ecs.ContainerDefinition;
       'Allow traffic from the WebRTC load balancer to the API'
     );
     
-    // Allow UDP traffic for WebRTC functionality (ports 3000-4000)
+    // Allow UDP traffic for WebRTC functionality
     apiSecurityGroup.addIngressRule(
       ec2.Peer.anyIpv4(),
       ec2.Port.udpRange(10000, 65535),
@@ -186,6 +100,84 @@ let container: ecs.ContainerDefinition;
         'Allow traffic from the webapp to the API'
       );
     }
+
+    // Create IAM role for EC2 instances
+    const ec2Role = new iam.Role(this, 'ApiEc2Role', {
+      assumedBy: new iam.ServicePrincipal('ec2.amazonaws.com'),
+      managedPolicies: [
+        iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonSSMManagedInstanceCore'),
+        iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonEC2ContainerRegistryReadOnly'),
+        iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonDynamoDBFullAccess'),
+        iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonTranscribeFullAccess'),
+        iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonBedrockFullAccess'),
+      ],
+    });
+
+    // Grant permissions to the DynamoDB table
+    this.table.grantReadWriteData(ec2Role);
+
+    // Create user data script for Docker installation and container execution
+    const userData = ec2.UserData.forLinux();
+    
+    // Determine the Docker image to use
+    let ecrImageUrl: string;
+    let ecrRepoUrl: string;
+    
+    // // Create a Docker image asset from the API Dockerfile
+    const dockerImageAsset = new ecr_assets.DockerImageAsset(this, 'ApiDockerImage', {
+      directory: path.join(__dirname, '../../nova-sonic/api'),
+      platform: ecr_assets.Platform.LINUX_ARM64,
+    });
+
+    // Get the ECR image URL from the asset
+    ecrImageUrl = dockerImageAsset.imageUri;
+    ecrRepoUrl = `${this.account}.dkr.ecr.${this.region}.amazonaws.com`;
+    
+    console.log(`Building Docker image from local Dockerfile: ${ecrImageUrl}`);
+    
+    userData.addCommands(
+      '#!/bin/bash',
+      'yum update -y',
+      'yum install -y docker',
+      'systemctl start docker',
+      'systemctl enable docker',
+      `aws ecr get-login-password --region ${this.region} | docker login --username AWS --password-stdin ${ecrRepoUrl}`,
+      'docker run -d --restart always --network=host \\',
+      `  -e AWS_REGION=${this.region} \\`,
+      `  -e DYNAMODB_TABLE_NAME=${this.table.tableName} \\`,
+      '  -e STUN_SERVER=stun:stun.l.google.com:19302 \\',
+      '  -e RESTAURANT_BOOKING_API_URL=https://lcp8gupvck.execute-api.us-east-1.amazonaws.com/demo \\',
+      '  -e HOST=0.0.0.0 \\',
+      '  -e PORT=8000 \\',
+      '  -e LOG_LEVEL=INFO \\',
+      '  -e NOVA_SONIC_VOICE_ID=tiffany \\',
+      `  ${ecrImageUrl}`
+    );
+
+    // Create Auto Scaling Group
+    this.autoScalingGroup = new autoscaling.AutoScalingGroup(this, 'ApiASG', {
+      vpc: props.vpc,
+      instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.XLARGE2),
+      machineImage: ec2.MachineImage.latestAmazonLinux2023({
+        cpuType: ec2.AmazonLinuxCpuType.ARM_64,
+      }),
+      minCapacity: 1,
+      maxCapacity: 3,
+      desiredCapacity: 1,
+      vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
+      securityGroup: apiSecurityGroup,
+      role: ec2Role,
+      userData: userData,
+      healthCheck: autoscaling.HealthCheck.ec2({
+        grace: cdk.Duration.minutes(5),
+      }),
+    });
+
+    // Add scaling policy
+    this.autoScalingGroup.scaleOnCpuUtilization('ASGCpuScaling', {
+      targetUtilizationPercent: 80,
+      cooldown: cdk.Duration.seconds(300),
+    });
 
     // Create the Application Load Balancer for API traffic
     this.apiLoadBalancer = new elbv2.ApplicationLoadBalancer(this, 'ApiLB', {
@@ -215,10 +207,10 @@ let container: ecs.ContainerDefinition;
       vpc: props.vpc,
       port: 8000,
       protocol: elbv2.ApplicationProtocol.HTTP,
-      targetType: elbv2.TargetType.IP,
+      targetType: elbv2.TargetType.INSTANCE,
       healthCheck: {
         path: '/api/health',
-        port: 'traffic-port',         // Use the traffic port for health checks (dynamic)
+        port: 'traffic-port',
         interval: cdk.Duration.seconds(30),
         healthyHttpCodes: '200',
         healthyThresholdCount: 2,
@@ -279,76 +271,9 @@ let container: ecs.ContainerDefinition;
       });
     }
 
-    // // Create a separate Network Load Balancer for WebRTC UDP traffic
-    // this.webrtcLoadBalancer = new elbv2.NetworkLoadBalancer(this, 'WebRtcLB', {
-    //   vpc: props.vpc,
-    //   internetFacing: true,
-    //   crossZoneEnabled: true,
-    // });
+    // Register the ASG with the target group
+    httpTargetGroup.addTarget(this.autoScalingGroup);
 
-    // // Create UDP target group for WebRTC (ports 3000-4000)
-    // const udpTargetGroup = new elbv2.NetworkTargetGroup(this, 'WebRtcUdpTargetGroup', {
-    //   vpc: props.vpc,
-    //   port: 3000, // Base port for UDP range
-    //   protocol: elbv2.Protocol.UDP,
-    //   targetType: elbv2.TargetType.INSTANCE,
-    //   healthCheck: {
-    //     protocol: elbv2.Protocol.TCP, // Health check must use TCP even for UDP target groups
-    //     port: 'traffic-port',         // Use the traffic port for health checks (dynamic)
-    //     interval: cdk.Duration.seconds(30),
-    //     healthyThresholdCount: 2,
-    //     unhealthyThresholdCount: 2,
-    //   },
-    // });
-
-    // // Add multiple UDP listeners for WebRTC traffic to cover the range 3000-4000
-    // // We'll create listeners at strategic points in the range
-    // const udpPorts = [3000, 3250, 3500, 3750, 4000]; // Strategic ports across the range
-    
-    // udpPorts.forEach((port, index) => {
-    //   this.webrtcLoadBalancer.addListener(`WebRtcUdpListener${index}`, {
-    //     port: port,
-    //     protocol: elbv2.Protocol.UDP,
-    //     defaultAction: elbv2.NetworkListenerAction.forward([udpTargetGroup]),
-    //   });
-    // });
-    
-    // // Add a specific note about UDP port range support
-    // new cdk.CfnOutput(this, 'WebRTCUdpPortRange', {
-    //   value: '3000-4000',
-    //   description: 'UDP port range supported for WebRTC',
-    //   exportName: 'NovaSonicWebRTCUdpPortRange',
-    // });
-
-    // Create the service based on compute type
-
-    // Create the Fargate service
-    this.service = new ecs.FargateService(this, 'ApiService', {
-      cluster: this.cluster,
-      taskDefinition,
-      desiredCount: 2,
-      securityGroups: [apiSecurityGroup],
-      vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
-      assignPublicIp: true,
-      circuitBreaker: { rollback: false },
-    });
-
-    // Register the service with the target groups
-    httpTargetGroup.addTarget(this.service);
-    // udpTargetGroup.addTarget(this.service);
-
-    // Auto-scaling configuration for the service
-    const scaling = this.service.autoScaleTaskCount({
-      minCapacity: 1,
-      maxCapacity: 6,
-    });
-
-    scaling.scaleOnCpuUtilization('CpuScaling', {
-      targetUtilizationPercent: 70,
-      scaleInCooldown: cdk.Duration.seconds(60),
-      scaleOutCooldown: cdk.Duration.seconds(60),
-    });
-    
     // Output the API load balancer DNS name
     new cdk.CfnOutput(this, 'ApiLoadBalancerDNS', {
       value: this.apiLoadBalancer.loadBalancerDnsName,
@@ -361,13 +286,6 @@ let container: ecs.ContainerDefinition;
       value: `http://${this.apiLoadBalancer.loadBalancerDnsName}`,
       description: 'The URL of the API load balancer',
     });
-
-    // // Output the WebRTC load balancer DNS name
-    // new cdk.CfnOutput(this, 'WebRtcLoadBalancerDNS', {
-    //   value: this.webrtcLoadBalancer.loadBalancerDnsName,
-    //   description: 'The DNS name of the WebRTC load balancer',
-    //   exportName: 'NovaSonicWebRtcLBDNS',
-    // });
 
     // No need to output the DynamoDB table name here as it's done in the DynamoDbStack
   }

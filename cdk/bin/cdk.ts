@@ -2,10 +2,15 @@
 import * as cdk from 'aws-cdk-lib';
 import * as fs from 'fs';
 import * as path from 'path';
-import { CdkStack } from '../lib/cdk-stack';
+import { CdkStack, ApiDeploymentType } from '../lib/cdk-stack';
 import { DnsConfig } from '../lib/dns-config';
 
 const app = new cdk.App();
+
+// Get the deployment type from context or environment variable
+const apiDeploymentType = app.node.tryGetContext('apiDeploymentType') ||
+                         process.env.API_DEPLOYMENT_TYPE ||
+                         ApiDeploymentType.EC2_DIRECT;
 
 // Define environment
 const env = {
@@ -32,6 +37,7 @@ new CdkStack(app, 'NovaSonicStack', {
   env,
   description: 'Nova Sonic Speech-to-Speech Application Infrastructure',
   dnsConfig,
+  apiDeploymentType: apiDeploymentType as ApiDeploymentType
 });
 
 // Log whether HTTPS is enabled
