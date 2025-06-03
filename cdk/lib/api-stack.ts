@@ -52,11 +52,11 @@ export class ApiStack extends cdk.Stack {
     // Add capacity to the cluster with EC2 instances
     const autoScalingGroup = new autoscaling.AutoScalingGroup(this, 'ApiASG', {
       vpc: props.vpc,
-      instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.MEDIUM),
+      instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.XLARGE),
       machineImage: ecs.EcsOptimizedImage.amazonLinux2023(ecs.AmiHardwareType.ARM),
       minCapacity: 1,
       maxCapacity: 3,
-      desiredCapacity: 2,
+      desiredCapacity: 1,
       vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
       securityGroup: apiSecurityGroup,
       healthCheck: autoscaling.HealthCheck.ec2({
@@ -124,8 +124,8 @@ export class ApiStack extends cdk.Stack {
       image: ecs.ContainerImage.fromAsset('../nova-sonic/api', {
         platform: cdk.aws_ecr_assets.Platform.LINUX_ARM64,
       }),
-      memoryLimitMiB: 2048,
-      cpu: 1024,
+      memoryLimitMiB: 10240, // Increased memory for better performance
+      cpu: 4096,
       logging: ecs.LogDrivers.awsLogs({
         streamPrefix: 'api',
         logGroup: logGroup,
