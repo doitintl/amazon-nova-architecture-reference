@@ -1,0 +1,40 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "pnpm: run dev vue webapp (nova sonic)",
+            "type": "node-terminal",
+            "request": "launch",
+            "command": "pnpm run dev --port 3000",
+            "cwd": "${workspaceFolder}/nova-sonic/webapp",
+            "skipFiles": ["<node_internals>/**"]
+        },
+        {
+            "name": "chrome: debug client-side",
+            "type": "chrome",
+            "request": "launch",
+            "url": "http://localhost:3000",
+            "skipFiles": ["${workspaceFolder}/nova-sonic/webapp/node_modules/**/*.js"],
+            "webRoot": "${workspaceFolder}/nova-sonic/webapp",
+        },        
+        {
+            "name": "Python Debugger: API",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "app.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}/nova-sonic/api",
+            "python": "${workspaceFolder}/nova-sonic/api/.venv/bin/python",
+            "purpose": [
+                "debug-test"
+            ],            
+            "justMyCode": false,
+            "env": {
+                "AWS_PROFILE":""
+            }
+        }        
+    ]
+}
