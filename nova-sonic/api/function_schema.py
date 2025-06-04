@@ -482,16 +482,16 @@ weather_function = FunctionSchema(
 )
 
 # now
-get_current_date_time_functionschema = FunctionSchema(
+get_current_date_time_function = FunctionSchema(
     name="get_current_date_time",
-    description="Get current date and time",
+    description="Returns today's date and current time, to help with restaurant bookings if user uses such as next week, and also to help validate if the booking date is in the future. The format is in %Y%m%d_%H%M%S, which is the Year-Year-Year-Year-Month-Month-Day-Day_Hour-Hour-Minute-Minute-Second-Second.",
     properties={},
     required=[],
 )
 # Define restaurant booking function schemas
 create_booking_function = FunctionSchema(
     name="create_restaurant_booking",
-    description="Create a new restaurant table reservation with guest details",
+    description="Create a new restaurant table reservation with guest details. Always convert the date of booking given by the user, to the format of Year-month-day.",
     properties={
         "name": {
             "type": "string",
@@ -500,7 +500,7 @@ create_booking_function = FunctionSchema(
         "date": {
             "type": "string",
             "format": "date",
-            "description": "The date of the booking, in the format of YYYYMMDD"
+            "description": "The date of the booking. If the format is not in the Year-month-day, convert to the format of Year-month-day required by the API, which is the Year-month-day seperated by the dash."
         },
         "hour": {
             "type": "string",
@@ -509,7 +509,7 @@ create_booking_function = FunctionSchema(
         },
         "num_guests": {
             "type": "integer",
-            "description": "The number of guests for the booking",
+            "description": "The number of guests for the booking. Must be between 1 and 20. If the guest is more than the maximum, response politely that the maximum number of guests is the maximum number.",
             "minimum": 1,
             "maximum": 20,
         },
@@ -552,7 +552,7 @@ tools = ToolsSchema(standard_tools=[
     create_booking_function,
     get_booking_function,
     delete_booking_function,
-    get_current_date_time_functionschema
+    get_current_date_time_function
 ])
 
 # Function to register all functions with the LLM service
@@ -562,4 +562,4 @@ def register_functions(llm_service):
     llm_service.register_function("create_restaurant_booking", create_restaurant_booking)
     llm_service.register_function("get_restaurant_booking", get_restaurant_booking)
     llm_service.register_function("delete_restaurant_booking", delete_restaurant_booking)
-    llm_service.register_function("get_current_date_time_functionschema", get_current_date_time)
+    llm_service.register_function("get_current_date_time", get_current_date_time)

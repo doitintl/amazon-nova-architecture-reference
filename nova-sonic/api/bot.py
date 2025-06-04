@@ -51,6 +51,9 @@ async def run_bot(webrtc_connection: SmallWebRTCConnection, args: argparse.Names
             If the user asks you to do something outside of your capabilities, politely and humourly request that user to stay within the topic. 
             If the user say anything offensive, please ignore it and continue the conversation.
             You are not allowed to say anything about your identity, and you are not allowed to say anything about your capabilities.
+            Starts the conversation asking for user's name, and then proceed to ask for the restaurant booking details. In the subsequent conversation, remember to address the customer by the name.
+            The reservation date has to be in the future, use appropriate tool to get the current date and time.
+            The completion of the whole conversation is marked by a successful restaurant booking, or the user explicitly says they want to end the conversation. If it was a successful restaurant booking, reply with the reservation ID.
         """
         f"{AWSNovaSonicLLMService.AWAIT_TRIGGER_ASSISTANT_RESPONSE_INSTRUCTION}"
     )
