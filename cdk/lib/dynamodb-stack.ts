@@ -10,10 +10,17 @@ export class DynamoDbStack extends cdk.Stack {
 
     // Create DynamoDB table for conversation history
     this.table = new dynamodb.Table(this, 'NovaSonicConversations', {
-      partitionKey: { name: 'conversation_id', type: dynamodb.AttributeType.STRING },
-      sortKey: { name: 'timestamp', type: dynamodb.AttributeType.STRING },
+      partitionKey: { name: 'username', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'conversation_id', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+    
+    // Create a GSI for querying by conversation_id and timestamp
+    this.table.addGlobalSecondaryIndex({
+      indexName: 'ConversationIdIndex',
+      partitionKey: { name: 'conversation_id', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'timestamp', type: dynamodb.AttributeType.STRING },
     });
 
     // Output the DynamoDB table name

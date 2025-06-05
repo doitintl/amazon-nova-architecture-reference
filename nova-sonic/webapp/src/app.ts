@@ -4,6 +4,11 @@
  * SPDX-License-Identifier: BSD 2-Clause License
  */
 
+// Polyfill for 'global' to fix aws-appsync compatibility in browser environments
+if (typeof window !== 'undefined' && !window.global) {
+  window.global = window;
+}
+
 import { SmallWebRTCTransport } from "@pipecat-ai/small-webrtc-transport";
 import {
   Participant,
@@ -12,6 +17,62 @@ import {
 } from "@pipecat-ai/client-js";
 import "./style.css";
 import { VoiceVisualizer } from "./voice-visualizer";
+
+// Types for GraphQL data
+interface Conversation {
+  conversation_id: string;
+  timestamp: string;
+  speaker?: string;
+  text?: string;
+  language?: string;
+  confidence?: number;
+}
+
+interface Booking {
+  booking_id: string;
+  date: string;
+  name: string;
+  hour: string;
+  num_guests: number;
+}
+
+// GraphQL subscription operations
+const SUBSCRIPTION_CONVERSATION_CREATED = `
+  subscription OnConversationCreated {
+    onConversationCreated {
+      conversation_id
+      timestamp
+      speaker
+      text
+      language
+      confidence
+    }
+  }
+`;
+
+const SUBSCRIPTION_BOOKING_CREATED = `
+  subscription OnBookingCreated {
+    onBookingCreated {
+      booking_id
+      date
+      name
+      hour
+      num_guests
+    }
+  }
+`;
+
+const SUBSCRIPTION_BOOKING_DELETED = `
+  subscription OnBookingDeleted {
+    onBookingDeleted {
+      booking_id
+      date
+      name
+      hour
+      num_guests
+    }
+  }
+`;
 
 class WebRTCApp {
   // UI elements
@@ -38,6 +99,11 @@ class WebRTCApp {
   private videoContainer!: HTMLElement;
   private botName!: HTMLElement;
   private transcriptContainer!: HTMLElement;
+  private dataTableContainer!: HTMLElement;
+  private dataTable!: HTMLElement;
+  private dataTableBody!: HTMLElement;
+  private dataTableStatus!: HTMLElement;
+  // Removed unused dataTableTabs variable
 
   // State
   private connected: boolean = false;
@@ -48,12 +114,24 @@ class WebRTCApp {
   private rtviClient!: RTVIClient;
   private declare voiceVisualizer: VoiceVisualizer;
   private transcripts: Array<{timestamp: string, role: string, content: string}> = [];
+  
+  // AppSync subscriptions
+  // These will be used in future real AppSync implementation
+  // Currently using mock data with intervals
+  
+  // Data state
+  private conversations: Conversation[] = [];
+  private bookings: Booking[] = [];
+  private activeDataTab: 'conversations' | 'bookings' = 'conversations';
+  private appSyncApiUrl: string = '';
+  private appSyncApiKey: string = '';
 
   constructor() {
     this.initializeVoiceVisualizer();
     this.setupDOMElements();
     this.setupDOMEventListeners();
     this.initializeRTVIClient();
+    this.configureAppSync();
 
     // Get bot name from URL query if available
     const urlParams = new URLSearchParams(window.location.search);
@@ -65,8 +143,433 @@ class WebRTCApp {
     // Initialize the devices
     void this.populateDevices();
   }
+  
+  /**
+   * Configure AppSync with endpoint and API key
+   */
+  private configureAppSync(): void {
+    try {
+      // Get runtime configuration
+      const runtimeConfig = (window as any).runtimeConfig || {};
+      
+      // Configure AppSync endpoint
+      this.appSyncApiUrl = runtimeConfig.APPSYNC_API_URL;
+      this.appSyncApiKey = runtimeConfig.APPSYNC_API_KEY;
+      
+      if (!this.appSyncApiUrl || !this.appSyncApiKey) {
+        this.log("AppSync configuration missing. Using mock data for demonstration.", "error");
+      } else {
+        this.log(`AppSync configured with URL: ${this.appSyncApiUrl}`, "status");
+        this.log(`Using API Key: ${this.appSyncApiKey.substring(0, 8)}...${this.appSyncApiKey.substring(this.appSyncApiKey.length - 4)}`, "status");
+        
+        // Verify API key format
+        if (!this.appSyncApiKey.startsWith('da2-')) {
+          this.log(`Warning: API key format may be invalid. AppSync API keys typically start with 'da2-'`, "error");
+        }
+        
+        this.log("AppSync configured successfully", "status");
+      }
+      
+      // Subscribe to data changes
+      this.subscribeToDataChanges();
+    } catch (error) {
+      const err = error as Error;
+      this.log(`Failed to configure AppSync: ${err.message}`, "error");
+      console.error("AppSync configuration error:", error);
+    }
+  }
+  
+  /**
+   * Subscribe to real-time data changes from AppSync
+   */
+  private subscribeToDataChanges(): void {
+    try {
+      // Set up data subscriptions
+      this.updateDataTableStatus("Setting up data subscriptions...");
+      
+      // Subscribe to Nova Transcribe data
+      this.setupSubscription(
+        SUBSCRIPTION_CONVERSATION_CREATED,
+        (data) => {
+          const conversation = data.onConversationCreated;
+          if (conversation) {
+            this.conversations.unshift(conversation);
+            this.log(`Received new conversation data: ${conversation.text}`, "status");
+            this.updateDataTable();
+            
+            // Update status message
+            this.updateDataTableStatus("Last update: " + new Date().toLocaleTimeString());
+          }
+        },
+        (error) => {
+          this.log(`Conversation subscription error: ${error}`, "error");
+        }
+      );
+      
+      // Subscribe to RestaurantBooking data
+      this.setupSubscription(
+        SUBSCRIPTION_BOOKING_CREATED,
+        (data) => {
+          const booking = data.onBookingCreated;
+          if (booking) {
+            this.bookings.unshift(booking);
+            this.log(`Received new booking: ${booking.name} for ${booking.date} at ${booking.hour}`, "status");
+            this.updateDataTable();
+            
+            // Update status message
+            this.updateDataTableStatus("Last update: " + new Date().toLocaleTimeString());
+          }
+        },
+        (error) => {
+          this.log(`Booking subscription error: ${error}`, "error");
+        }
+      );
+      
+      this.setupSubscription(
+        SUBSCRIPTION_BOOKING_DELETED,
+        (data) => {
+          const deletedBooking = data.onBookingDeleted;
+          if (deletedBooking) {
+            this.bookings = this.bookings.filter(b => b.booking_id !== deletedBooking.booking_id);
+            this.log(`Booking deleted: ${deletedBooking.booking_id}`, "status");
+            this.updateDataTable();
+            
+            // Update status message
+            this.updateDataTableStatus("Last update: " + new Date().toLocaleTimeString());
+          }
+        },
+        (error) => {
+          this.log(`Booking deletion subscription error: ${error}`, "error");
+        }
+      );
+      
+      this.log("Successfully subscribed to data feeds", "status");
+      
+      // Update status
+      this.updateDataTableStatus("Waiting for data...");
+      
+    } catch (error) {
+      const err = error as Error;
+      this.log(`Failed to subscribe to data changes: ${err.message}`, "error");
+      console.error("Subscription error:", error);
+      this.updateDataTableStatus(`Error: ${err.message}`);
+    }
+  }
+  
+  /**
+   * Set up a GraphQL subscription using WebSocket
+   */
+  private setupSubscription(
+    query: string,
+    onData: (data: any) => void,
+    onError: (error: string) => void
+  ): void {
+    try {
+      // Check if AppSync configuration is available
+      if (!this.appSyncApiUrl || !this.appSyncApiKey) {
+        this.log("AppSync configuration missing. Using mock data instead.", "error");
+        this.setupMockSubscription(query, onData);
+        return;
+      }
 
-  initializeVoiceVisualizer() {
+      // Log AppSync configuration
+      this.log(`Configuring AppSync with URL: ${this.appSyncApiUrl}`, "status");
+      this.log(`API Key: ${this.appSyncApiKey.substring(0, 5)}...`, "status");
+      
+      // Extract the subscription name from the query
+      let subscriptionName = '';
+      if (query.includes('OnConversationCreated')) {
+        subscriptionName = 'onConversationCreated';
+      } else if (query.includes('OnBookingCreated')) {
+        subscriptionName = 'onBookingCreated';
+      } else if (query.includes('OnBookingDeleted')) {
+        subscriptionName = 'onBookingDeleted';
+      }
+      
+      this.log(`Setting up subscription for: ${subscriptionName}`, "status");
+      
+      // Verify API key format
+      if (!this.appSyncApiKey.startsWith('da2-')) {
+        this.log(`Invalid API key format. API keys should start with 'da2-'`, "error");
+        this.setupMockSubscription(query, onData);
+        return;
+      }
+      
+      // Set up a WebSocket connection for real-time updates using the AppSync client
+      this.setupWebSocketConnection(subscriptionName, onData, onError);
+      
+      // Log success
+      this.log(`AppSync subscription setup initiated for ${subscriptionName}`, "status");
+    } catch (error) {
+      const err = error as Error;
+      this.log(`Failed to set up AppSync subscription: ${err.message}`, "error");
+      console.error("AppSync subscription setup error:", error);
+      
+      onError(err.message);
+      
+      // Fall back to mock data if setup fails
+      this.log("Falling back to mock data due to setup error", "status");
+      this.setupMockSubscription(query, onData);
+    }
+  }
+  
+  /**
+   * Set up a WebSocket connection to AppSync for real-time updates
+   */
+  private setupWebSocketConnection(
+    subscriptionName: string,
+    onData: (data: any) => void,
+    onError: (error: string) => void
+  ): void {
+    try {
+      this.log("Setting up WebSocket connection for real-time updates", "status");
+      this.log(`AppSync API URL: ${this.appSyncApiUrl}`, "status");
+      this.log(`AppSync API Key: ${this.appSyncApiKey.substring(0, 8)}...${this.appSyncApiKey.substring(this.appSyncApiKey.length - 4)}`, "status");
+      
+      // Log to browser console for debugging
+      console.log("[AppSync Debug] Setting up WebSocket connection");
+      console.log("[AppSync Debug] API URL:", this.appSyncApiUrl);
+      console.log("[AppSync Debug] API Key:", `${this.appSyncApiKey.substring(0, 8)}...${this.appSyncApiKey.substring(this.appSyncApiKey.length - 4)}`);
+      
+      // Import required libraries for AppSync subscriptions
+      this.log("Importing AWS AppSync client libraries...", "status");
+      import('aws-appsync').then(({ default: AWSAppSyncClient }) => {
+        this.log("AWS AppSync client library loaded successfully", "status");
+        import('graphql-tag').then(({ default: gql }) => {
+          this.log("GraphQL tag library loaded successfully", "status");
+          
+          // Extract region from API URL
+          const regionMatch = this.appSyncApiUrl.match(/appsync-api\.([^.]+)\.amazonaws\.com/);
+          const region = regionMatch ? regionMatch[1] : 'us-west-1';
+          this.log(`Detected AWS region: ${region}`, "status");
+          
+          // Create AppSync client
+          this.log("Creating AppSync client...", "status");
+          const client = new AWSAppSyncClient({
+            url: this.appSyncApiUrl,
+            region: region,
+            auth: {
+              type: 'API_KEY',
+              apiKey: this.appSyncApiKey,
+            },
+            disableOffline: true,
+          });
+          
+          this.log(`Setting up AppSync subscription: ${subscriptionName}`, "status");
+          
+          // Define subscription query based on subscription name
+          let subscriptionQuery;
+          if (subscriptionName === 'onConversationCreated') {
+            subscriptionQuery = gql`
+              subscription OnConversationCreated {
+                onConversationCreated {
+                  conversation_id
+                  timestamp
+                  speaker
+                  text
+                  language
+                  confidence
+                }
+              }
+            `;
+            this.log("Using OnConversationCreated subscription query", "status");
+          } else if (subscriptionName === 'onBookingCreated') {
+            subscriptionQuery = gql`
+              subscription OnBookingCreated {
+                onBookingCreated {
+                  booking_id
+                  date
+                  name
+                  hour
+                  num_guests
+                }
+              }
+            `;
+            this.log("Using OnBookingCreated subscription query", "status");
+          } else if (subscriptionName === 'onBookingDeleted') {
+            subscriptionQuery = gql`
+              subscription OnBookingDeleted {
+                onBookingDeleted {
+                  booking_id
+                  date
+                  name
+                  hour
+                  num_guests
+                }
+              }
+            `;
+            this.log("Using OnBookingDeleted subscription query", "status");
+          }
+          
+          if (!subscriptionQuery) {
+            throw new Error(`Unknown subscription name: ${subscriptionName}`);
+          }
+          
+          // Subscribe to the AppSync subscription
+          this.log("Connecting to AppSync real-time subscription...", "status");
+          console.log("[AppSync Debug] Connecting to subscription:", subscriptionName);
+          
+          try {
+            const subscription = client.subscribe({
+              query: subscriptionQuery,
+              fetchPolicy: 'network-only',
+            }).subscribe({
+              next: (data) => {
+                this.log(`Received real-time data from AppSync: ${subscriptionName}`, "status");
+                console.log("[AppSync Debug] Received data:", data);
+                
+                // Update the data table status
+                this.updateDataTableStatus(`Last update: ${new Date().toLocaleTimeString()} - REAL DATA`);
+                
+                onData(data.data);
+              },
+              error: (error) => {
+                this.log(`AppSync subscription error: ${error.message}`, "error");
+                console.error("[AppSync Debug] Subscription error:", error);
+                onError(error.message);
+                
+                // Fall back to mock data if subscription fails
+                this.log("Falling back to mock data due to subscription error", "status");
+                this.setupMockSubscription(subscriptionName, onData, onError);
+              },
+              complete: () => {
+                this.log(`AppSync subscription completed: ${subscriptionName}`, "status");
+                console.log("[AppSync Debug] Subscription completed");
+              }
+            });
+            
+            // Store the subscription for cleanup
+            (window as any).appSyncSubscriptions = (window as any).appSyncSubscriptions || [];
+            (window as any).appSyncSubscriptions.push(subscription);
+            
+            this.log(`AppSync subscription ${subscriptionName} set up successfully`, "status");
+          } catch (subscriptionError) {
+            const err = subscriptionError as Error;
+            this.log(`Error creating subscription: ${err.message}`, "error");
+            console.error("[AppSync Debug] Error creating subscription:", err);
+            
+            // Fall back to mock data
+            this.setupMockSubscription(subscriptionName, onData, onError);
+          }
+        }).catch(error => {
+          this.log(`Failed to import graphql-tag: ${error.message}`, "error");
+          console.error("[AppSync Debug] Failed to import graphql-tag:", error);
+          this.setupMockSubscription(subscriptionName, onData, onError);
+        });
+      }).catch(error => {
+        this.log(`Failed to import aws-appsync: ${error.message}`, "error");
+        console.error("[AppSync Debug] Failed to import aws-appsync:", error);
+        this.setupMockSubscription(subscriptionName, onData, onError);
+      });
+    } catch (error) {
+      const err = error as Error;
+      console.error("WebSocket connection error:", err.message);
+      
+      // Fall back to mock data for any other errors
+      // We need to determine the appropriate query based on the subscription name
+      let query = '';
+      if (subscriptionName === 'onConversationCreated') {
+        query = SUBSCRIPTION_CONVERSATION_CREATED;
+      } else if (subscriptionName === 'onBookingCreated') {
+        query = SUBSCRIPTION_BOOKING_CREATED;
+      } else if (subscriptionName === 'onBookingDeleted') {
+        query = SUBSCRIPTION_BOOKING_DELETED;
+      }
+      
+      this.setupMockSubscription(query, onData, onError);
+    }
+  }
+  
+  /**
+   * Set up a mock subscription for testing or when AppSync is unavailable
+   */
+  private setupMockSubscription(
+    query: string,
+    onData: (data: any) => void,
+    onError?: (error: string) => void
+  ): void {
+    try {
+      this.log("⚠️ USING MOCK DATA - Not connected to real DynamoDB ⚠️", "error");
+      console.warn("[AppSync Debug] Using mock data instead of real DynamoDB data");
+      
+      // Update the data table status to clearly indicate mock data
+      this.updateDataTableStatus("⚠️ USING MOCK DATA - Not connected to real DynamoDB");
+      
+      // Generate initial mock data immediately
+      if (query === SUBSCRIPTION_CONVERSATION_CREATED) {
+        // Generate mock conversation data
+        const initialConversation: Conversation = {
+          conversation_id: `mock-conv-${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          speaker: "Assistant",
+          text: "[MOCK DATA] Welcome to Nova Sonic! How can I help you today?",
+          language: "en-US",
+          confidence: 0.95
+        };
+        
+        // Send initial data immediately
+        setTimeout(() => {
+          onData({ onConversationCreated: initialConversation });
+        }, 500);
+      }
+      
+      // Set up interval for continuous mock data generation
+      const mockDataInterval = setInterval(() => {
+        if (query === SUBSCRIPTION_CONVERSATION_CREATED) {
+          // Generate mock conversation data
+          const mockConversation: Conversation = {
+            conversation_id: `mock-conv-${Date.now()}`,
+            timestamp: new Date().toISOString(),
+            speaker: Math.random() > 0.5 ? "User" : "Assistant",
+            text: `[MOCK DATA] Sample conversation text ${Math.floor(Math.random() * 1000)}`,
+            language: "en-US",
+            confidence: Math.random()
+          };
+          
+          onData({ onConversationCreated: mockConversation });
+        } else if (query === SUBSCRIPTION_BOOKING_CREATED && Math.random() > 0.5) {
+          // Generate mock booking data more frequently (50% chance)
+          const mockBooking: Booking = {
+            booking_id: `mock-book-${Date.now()}`,
+            date: new Date().toISOString().split('T')[0],
+            name: `[MOCK] Customer ${Math.floor(Math.random() * 100)}`,
+            hour: `${Math.floor(Math.random() * 12 + 1)}:00 ${Math.random() > 0.5 ? 'AM' : 'PM'}`,
+            num_guests: Math.floor(Math.random() * 10) + 1
+          };
+          
+          onData({ onBookingCreated: mockBooking });
+        }
+      }, 3000); // Generate mock data every 3 seconds (faster for demo)
+      
+      // Store the interval ID so we can clear it later
+      (window as any).mockDataIntervals = (window as any).mockDataIntervals || [];
+      (window as any).mockDataIntervals.push(mockDataInterval);
+      
+      this.log("Mock subscription set up successfully", "status");
+    } catch (error) {
+      const err = error as Error;
+      console.error("Mock subscription error:", err);
+      
+      // Call onError if provided
+      if (onError) {
+        onError(err.message);
+      }
+    }
+  }
+  
+  /**
+   * Update the data table status message
+   */
+  private updateDataTableStatus(message: string): void {
+    if (this.dataTableStatus) {
+      this.dataTableStatus.textContent = message;
+    }
+  }
+
+  /**
+   * Initialize the voice visualizer
+   */
+  private initializeVoiceVisualizer(): void {
     this.voiceVisualizer = new VoiceVisualizer({
       backgroundColor: "transparent",
       barColor: "rgba(255, 255, 255, 0.8)",
@@ -327,82 +830,6 @@ class WebRTCApp {
           }
         },
       }
-      // callbacks: {
-      //   // Transport state changes
-      //   onTransportStateChanged: (state) => {
-      //     this.log(`Transport state: ${state}`);
-          
-      //     // Additional logging for ICE connection states
-      //     if (state === 'ready') {
-      //       this.log("WebRTC transport connected successfully", "status");
-      //       this.log("Connection established with ICE servers (STUN/TURN)", "status");
-      //     } else if (state === 'error') {
-      //       this.log("WebRTC transport encountered an error", "error");
-      //       this.log("This may indicate issues with STUN/TURN servers or network connectivity", "error");
-      //     } else if (state === 'disconnected') {
-      //       this.log("WebRTC transport disconnected", "status");
-      //     } else if (state === 'connecting') {
-      //       this.log("Establishing WebRTC connection using ICE servers...", "status");
-      //     }
-      //   },
-
-      //   // Connection events
-      //   onConnected: () => {
-      //     this.onConnectedHandler();
-      //   },
-      //   onDisconnected: () => {
-      //     this.onDisconnectedHandler();
-      //   },
-      //   onBotReady: () => {
-      //     this.log("Bot is ready.");
-      //   },
-
-      //   // Speech events
-      //   onUserStartedSpeaking: () => {
-      //     this.log("User started speaking.");
-      //   },
-      //   onUserStoppedSpeaking: () => {
-      //     this.log("User stopped speaking.");
-      //   },
-      //   onBotStartedSpeaking: () => {
-      //     this.log("Bot started speaking.");
-      //   },
-      //   onBotStoppedSpeaking: () => {
-      //     this.log("Bot stopped speaking.");
-      //   },
-
-      //   // Transcript events
-      //   onUserTranscript: (transcript) => {
-      //     if (transcript.final) {
-      //       this.log(`User transcript: ${transcript.text}`);
-      //     }
-      //   },
-      //   onBotTranscript: (transcript) => {
-      //     this.log(`Bot transcript: ${transcript.text}`);
-      //   },
-
-      //   // Media tracks
-      //   onTrackStarted: (
-      //     track: MediaStreamTrack,
-      //     participant?: Participant
-      //   ) => {
-      //     if (participant?.local) {
-      //       // Handle local tracks (e.g., self-view)
-      //       if (track.kind === "video") {
-      //         this.selfViewVideo.srcObject = new MediaStream([track]);
-      //         this.updateSelfViewVisibility();
-      //       }
-      //       return;
-      //     }
-      //     // Handle remote tracks (the bot)
-      //     this.onBotTrackStarted(track);
-      //   },
-
-      //   // Other events
-      //   onServerMessage: (msg) => {
-      //     this.log(`Server message: ${msg}`);
-      //   },
-      // },
     };
 
     // This is required for SmallWebRTCTransport
@@ -503,6 +930,95 @@ class WebRTCApp {
         console.error("[TRANSCRIPT DEBUG] Error loading stored transcripts:", e);
       }
     }
+    
+    // Set up data table container
+    this.setupDataTableUI();
+  }
+  
+  /**
+   * Set up the data table UI for displaying DynamoDB data
+   */
+  private setupDataTableUI(): void {
+    // Check if data-table-container exists, if not create it
+    this.dataTableContainer = document.getElementById("data-table-container") as HTMLElement;
+    
+    if (!this.dataTableContainer) {
+      // Create the data table container if it doesn't exist
+      this.dataTableContainer = document.createElement("div");
+      this.dataTableContainer.id = "data-table-container";
+      this.dataTableContainer.className = "panel-content";
+      
+      // Add it to the debug panel
+      const debugPanel = document.querySelector(".debug-panel");
+      if (debugPanel) {
+        debugPanel.appendChild(this.dataTableContainer);
+      }
+      
+      // Add a tab for the data table
+      const panelTabs = document.querySelector(".panel-tabs");
+      if (panelTabs) {
+        const dataTableTab = document.createElement("button");
+        dataTableTab.className = "panel-tab";
+        dataTableTab.setAttribute("data-tab", "data-table");
+        dataTableTab.textContent = "Data Table";
+        panelTabs.appendChild(dataTableTab);
+        
+        // No need to store reference to tabs since we're not using it elsewhere
+      }
+    }
+    
+    // Create the data table structure
+    this.dataTableContainer.innerHTML = `
+      <div class="data-table-header">
+        <div class="data-table-tabs">
+          <button class="data-tab active" data-type="conversations">Nova Transcribe</button>
+          <button class="data-tab" data-type="bookings">Restaurant Bookings</button>
+        </div>
+        <div class="data-table-status">Waiting for data...</div>
+      </div>
+      <div class="data-table-wrapper">
+        <table class="data-table">
+          <thead>
+            <tr id="data-table-headers">
+              <th>Time</th>
+              <th>Speaker</th>
+              <th>Text</th>
+              <th>Language</th>
+              <th>Confidence</th>
+            </tr>
+          </thead>
+          <tbody id="data-table-body">
+            <tr>
+              <td colspan="5" class="data-table-empty">No data available</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    `;
+    
+    // Get references to the table elements
+    this.dataTable = this.dataTableContainer.querySelector(".data-table") as HTMLElement;
+    this.dataTableBody = this.dataTableContainer.querySelector("#data-table-body") as HTMLElement;
+    this.dataTableStatus = this.dataTableContainer.querySelector(".data-table-status") as HTMLElement;
+    
+    // Add event listeners for data table tabs
+    const dataTabs = this.dataTableContainer.querySelectorAll(".data-tab");
+    dataTabs.forEach(tab => {
+      tab.addEventListener("click", () => {
+        // Remove active class from all tabs
+        dataTabs.forEach(t => t.classList.remove("active"));
+        
+        // Add active class to clicked tab
+        tab.classList.add("active");
+        
+        // Update active data tab
+        const dataType = tab.getAttribute("data-type") as 'conversations' | 'bookings';
+        if (dataType) {
+          this.activeDataTab = dataType;
+          this.updateDataTable();
+        }
+      });
+    });
   }
 
   private setupDOMEventListeners(): void {
@@ -538,9 +1054,43 @@ class WebRTCApp {
           document.getElementById('debug-log')?.classList.add('active');
         } else if (tabName === 'transcript') {
           document.getElementById('conversation-transcript')?.classList.add('active');
+        } else if (tabName === 'data-table') {
+          document.getElementById('data-table-container')?.classList.add('active');
         }
       });
     });
+    
+    // Add Data Table tab if it doesn't exist
+    const panelTabsContainer = document.querySelector('.panel-tabs');
+    if (panelTabsContainer) {
+      // Check if Data Table tab exists
+      const dataTableTab = document.querySelector('.panel-tab[data-tab="data-table"]');
+      if (!dataTableTab) {
+        // Create Data Table tab
+        const newDataTableTab = document.createElement('button');
+        newDataTableTab.className = 'panel-tab';
+        newDataTableTab.setAttribute('data-tab', 'data-table');
+        newDataTableTab.textContent = 'Data Table';
+        
+        // Add click event listener
+        newDataTableTab.addEventListener('click', () => {
+          // Remove active class from all tabs and panels
+          document.querySelectorAll('.panel-tab').forEach(t => t.classList.remove('active'));
+          document.querySelectorAll('.panel-content').forEach(p => p.classList.remove('active'));
+          
+          // Add active class to this tab
+          newDataTableTab.classList.add('active');
+          
+          // Activate data table panel
+          document.getElementById('data-table-container')?.classList.add('active');
+        });
+        
+        // Add to panel tabs
+        panelTabsContainer.appendChild(newDataTableTab);
+        
+        this.log("Added Data Table tab to UI", "status");
+      }
+    }
 
     // Media toggle buttons
     this.micToggleBtn.addEventListener("click", () => {
@@ -1057,10 +1607,116 @@ class WebRTCApp {
       if (this.selfViewVideo.srcObject) {
         this.selfViewVideo.srcObject = null;
       }
+      
+      // Clean up mock data intervals
+      if ((window as any).mockDataIntervals) {
+        (window as any).mockDataIntervals.forEach((interval: number) => {
+          clearInterval(interval);
+        });
+        (window as any).mockDataIntervals = [];
+        this.log("Mock data intervals cleaned up", "status");
+      }
+      
+      // Clean up AppSync subscriptions
+      if ((window as any).appSyncSubscriptions) {
+        (window as any).appSyncSubscriptions.forEach((subscription: any) => {
+          if (subscription && typeof subscription.unsubscribe === 'function') {
+            subscription.unsubscribe();
+          }
+        });
+        (window as any).appSyncSubscriptions = [];
+        this.log("AppSync subscriptions cleaned up", "status");
+      }
     } catch (e) {
       const error = e as Error;
       this.log(`Error during disconnect: ${error.message}`, "error");
       console.error("Disconnect error:", e);
+    }
+  }
+  
+  /**
+   * Update the data table with the current data
+   */
+  private updateDataTable(): void {
+    if (!this.dataTable || !this.dataTableBody) return;
+    
+    // Clear the table body
+    this.dataTableBody.innerHTML = '';
+    
+    // Update table headers based on active tab
+    const headerRow = document.getElementById('data-table-headers');
+    if (headerRow) {
+      if (this.activeDataTab === 'conversations') {
+        headerRow.innerHTML = `
+          <th>Time</th>
+          <th>Speaker</th>
+          <th>Text</th>
+          <th>Language</th>
+          <th>Confidence</th>
+        `;
+      } else {
+        headerRow.innerHTML = `
+          <th>Booking ID</th>
+          <th>Name</th>
+          <th>Date</th>
+          <th>Time</th>
+          <th>Guests</th>
+        `;
+      }
+    }
+    
+    // Display data based on active tab
+    if (this.activeDataTab === 'conversations') {
+      if (this.conversations.length === 0) {
+        this.dataTableBody.innerHTML = `
+          <tr>
+            <td colspan="5" class="data-table-empty">No conversation data available</td>
+          </tr>
+        `;
+        return;
+      }
+      
+      // Add conversation data rows
+      this.conversations.forEach(conversation => {
+        const row = document.createElement('tr');
+        
+        // Format timestamp for display
+        const timestamp = new Date(conversation.timestamp);
+        const formattedTime = timestamp.toLocaleTimeString();
+        
+        row.innerHTML = `
+          <td>${formattedTime}</td>
+          <td>${conversation.speaker || 'Unknown'}</td>
+          <td>${conversation.text || ''}</td>
+          <td>${conversation.language || ''}</td>
+          <td>${conversation.confidence ? (conversation.confidence * 100).toFixed(1) + '%' : ''}</td>
+        `;
+        
+        this.dataTableBody.appendChild(row);
+      });
+    } else {
+      if (this.bookings.length === 0) {
+        this.dataTableBody.innerHTML = `
+          <tr>
+            <td colspan="5" class="data-table-empty">No booking data available</td>
+          </tr>
+        `;
+        return;
+      }
+      
+      // Add booking data rows
+      this.bookings.forEach(booking => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td>${booking.booking_id}</td>
+          <td>${booking.name}</td>
+          <td>${booking.date}</td>
+          <td>${booking.hour}</td>
+          <td>${booking.num_guests}</td>
+        `;
+        
+        this.dataTableBody.appendChild(row);
+      });
     }
   }
 

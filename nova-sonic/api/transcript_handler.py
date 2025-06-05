@@ -5,10 +5,13 @@ from loguru import logger
 
 
 class TranscriptHandler:
-    def __init__(self, transport=None):
+    def __init__(self, transport=None, username=None):
         self.messages = []
         # Store the transport if provided
         self.transport = transport
+        
+        # Store the username or use a default
+        self.username = username or os.getenv("DEFAULT_USERNAME", "default_user")
         
         # Initialize DynamoDB client if table name is provided
         self.dynamodb_client = None
@@ -59,20 +62,26 @@ class TranscriptHandler:
             })
 
     # Function to store conversation in DynamoDB
-    async def store_conversation(self, message):
+    async def store_conversation(self, message, username=None):
         """Store conversation in DynamoDB."""
         if not self.dynamodb_client:
             logger.debug("DynamoDB integration not enabled, skipping storage")
             return
 
         try:
+            # Use provided username or fall back to the instance username
+            username = username or self.username
             timestamp = datetime.now().isoformat()
+            conversation_id = f"{timestamp}"
+            
             item = {
-                "conversation_id": timestamp,
+                "username": username,
+                "conversation_id": conversation_id,
+                "timestamp": timestamp,
                 "conversation": message
             }
             self.dynamodb_client.put_item(Item=item)
-            logger.debug(f"Stored conversation in DynamoDB: {timestamp}")
+            logger.debug(f"Stored conversation in DynamoDB for user {username}: {conversation_id}")
         except Exception as e:
             logger.error(f"Error storing conversation in DynamoDB: {e}")
 
@@ -183,6 +192,11 @@ class TranscriptHandler:
         """Set the transport to use for sending messages to the frontend."""
         self.transport = transport
         logger.debug(f"[TRANSCRIPT DEBUG] Transport set: {transport.__class__.__name__}")
+        
+    def set_username(self, username):
+        """Set the username for this transcript handler."""
+        self.username = username
+        logger.debug(f"[TRANSCRIPT DEBUG] Username set: {username}")
         
     async def send_test_transcript_message(self, processor):
         """Send a direct test transcript message to verify functionality."""

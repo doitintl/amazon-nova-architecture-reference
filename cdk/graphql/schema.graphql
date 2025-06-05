@@ -1,0 +1,65 @@
+type Conversation {
+  username: String!
+  conversation_id: ID!
+  timestamp: String!
+  speaker: String
+  text: String
+  language: String
+  confidence: Float
+}
+
+type Booking {
+  booking_id: ID!
+  date: String!
+  name: String!
+  hour: String!
+  num_guests: Int!
+}
+
+type Query {
+  getConversation(username: String!, conversation_id: ID!): Conversation
+  getConversationByConversationId(conversation_id: ID!, timestamp: String): Conversation
+  listConversations(username: String!, limit: Int, nextToken: String): [Conversation]
+  listAllConversations(limit: Int, nextToken: String): [Conversation]
+  getBooking(bookingId: ID!): Booking
+  listBookings(limit: Int, nextToken: String): [Booking]
+}
+
+input ConversationInput {
+  username: String!
+  conversation_id: ID!
+  timestamp: String!
+  speaker: String
+  text: String
+  language: String
+  confidence: Float
+}
+
+input BookingInput {
+  booking_id: ID!
+  date: String!
+  name: String!
+  hour: String!
+  num_guests: Int!
+}
+
+type Mutation {
+  createConversation(input: ConversationInput!): Conversation
+  createBooking(input: BookingInput!): Booking
+  deleteBooking(bookingId: ID!): Booking
+}
+
+type Subscription {
+  onConversationCreated: Conversation
+    @aws_subscribe(mutations: ["createConversation"])
+  onBookingCreated: Booking
+    @aws_subscribe(mutations: ["createBooking"])
+  onBookingDeleted: Booking
+    @aws_subscribe(mutations: ["deleteBooking"])
+}
+
+schema {
+  query: Query
+  mutation: Mutation
+  subscription: Subscription
+}
