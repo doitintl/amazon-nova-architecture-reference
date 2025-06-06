@@ -63,9 +63,9 @@ async def run_bot(webrtc_connection: SmallWebRTCConnection, args: argparse.Names
 
     # Create the AWS Nova Sonic LLM service
     llm = AWSNovaSonicLLMService(
-        secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
-        access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
-        region=region,
+        secret_access_key=os.getenv("NOVA_AWS_SECRET_ACCESS_KEY"),
+        access_key_id=os.getenv("NOVA_AWS_ACCESS_KEY_ID"),
+        region=os.getenv("NOVA_AWS_REGION"),
         voice_id=voice_id,  # matthew, tiffany, amy
         send_transcription_frames=True
     )
