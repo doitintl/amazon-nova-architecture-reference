@@ -77,7 +77,7 @@ export class CdkStack extends cdk.Stack {
         stackName: 'nova-sonic-api',
         vpc: networkStack.vpc,
         dnsHelper: dnsHelper,
-        dynamoDbTable: dynamoDbStack.table,
+        dynamoDbTable: dynamoDbStack.conversationTable,
         ...props,
       });
       
@@ -88,7 +88,7 @@ export class CdkStack extends cdk.Stack {
         stackName: 'nova-sonic-api-ec2',
         vpc: networkStack.vpc,
         dnsHelper: dnsHelper,
-        dynamoDbTable: dynamoDbStack.table,
+        dynamoDbTable: dynamoDbStack.conversationTable,
         ...props,
       });
      
@@ -133,5 +133,6 @@ export class CdkStack extends cdk.Stack {
       // The webapp stack depends on the API stack
       webappStack.node.addDependency(apiEc2Stack);
     }
+
   }
 }

@@ -1,0 +1,14 @@
+{
+  "name": "dynamodb-streams-processor",
+  "version": "1.0.0",
+  "description": "Lambda function to process DynamoDB streams and publish to AppSync Events API",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@aws-sdk/util-dynamodb": "^3.370.0"
+  }
+}
