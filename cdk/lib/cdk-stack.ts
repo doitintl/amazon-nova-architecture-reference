@@ -6,7 +6,6 @@ import { WebappStack } from './webapp-stack';
 import { ApiStack } from './api-stack';
 import { ApiEc2Stack } from './api-ec2-stack';
 import { DynamoDbStack } from './dynamodb-stack';
-import { AppSyncStack } from './appsync-stack';
 import { DnsHelper, DnsConfig } from './dns-config';
 
 /**
@@ -60,14 +59,6 @@ export class CdkStack extends cdk.Stack {
     } catch (error) {
       console.log('RestaurantBooking table not found, continuing without it');
     }
-
-    // Create the AppSync stack
-    const appSyncStack = new AppSyncStack(scope, 'NovaSonicAppSyncStack', {
-      stackName: 'nova-sonic-appsync',
-      novaTranscribeTable: dynamoDbStack.table,
-      restaurantBookingTable: restaurantBookingTable,
-      ...props,
-    });
 
     // Create DNS helper if DNS configuration is provided
     let dnsHelper: DnsHelper | undefined;
@@ -142,21 +133,5 @@ export class CdkStack extends cdk.Stack {
       // The webapp stack depends on the API stack
       webappStack.node.addDependency(apiEc2Stack);
     }
-    
-    // The AppSync stack depends on the DynamoDB stack
-    appSyncStack.node.addDependency(dynamoDbStack);
-    
-    // Export AppSync API URL and key for frontend use
-    new cdk.CfnOutput(this, 'AppSyncAPIURL', {
-      value: appSyncStack.apiUrl,
-      description: 'The URL of the AppSync GraphQL API',
-      exportName: 'NovaSonicAppSyncAPIURL',
-    });
-    
-    new cdk.CfnOutput(this, 'AppSyncAPIKey', {
-      value: appSyncStack.apiKey,
-      description: 'The API Key for the AppSync GraphQL API',
-      exportName: 'NovaSonicAppSyncAPIKey',
-    });
   }
 }

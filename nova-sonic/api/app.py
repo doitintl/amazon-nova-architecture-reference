@@ -24,8 +24,15 @@ load_dotenv(override=True)
 
 # Configure logging
 log_level = os.getenv("LOG_LEVEL", "DEBUG")
+log_file_path = os.getenv("LOG_FILE_PATH", "/var/log/nova-sonic/api.log")
+
+# Ensure log directory exists
+os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
+
 logger.remove()
 logger.add(sys.stderr, level=log_level)
+logger.add(log_file_path, rotation="10 MB", retention="1 week", level=log_level)
+logger.info(f"Logging to file: {log_file_path}")
 
 # Create FastAPI app
 app = FastAPI(

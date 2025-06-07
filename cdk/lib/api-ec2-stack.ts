@@ -17,6 +17,7 @@ interface ApiEc2StackProps extends cdk.StackProps {
   vpc: ec2.Vpc;
   webappLoadBalancerDns?: string;
   dnsHelper?: DnsHelper;
+  novaAwsRegion?: string; // AWS region for Nova Sonic
   dynamoDbTable: dynamodb.Table; // DynamoDB table for conversation history
 }
 
@@ -24,12 +25,15 @@ export class ApiEc2Stack extends cdk.Stack {
   public readonly apiLoadBalancer: elbv2.ApplicationLoadBalancer;
   public readonly table: dynamodb.Table;
   public readonly autoScalingGroup: autoscaling.AutoScalingGroup;
+  public readonly novaAwsRegion: string; // AWS region for Nova Sonic
 
   constructor(scope: Construct, id: string, props: ApiEc2StackProps) {
     super(scope, id, props);
 
     // Use the provided DynamoDB table
     this.table = props.dynamoDbTable;
+
+    this.novaAwsRegion = props.novaAwsRegion || 'us-east-1';
 
     // Create security group for the API
     const apiSecurityGroup = new ec2.SecurityGroup(this, 'ApiSecurityGroup', {
@@ -142,7 +146,9 @@ export class ApiEc2Stack extends cdk.Stack {
       'systemctl start docker',
       'systemctl enable docker',
       `aws ecr get-login-password --region ${this.region} | docker login --username AWS --password-stdin ${ecrRepoUrl}`,
+      'mkdir -p /var/log/nova-sonic',
       'docker run -d --restart always --network=host \\',
+      '  -v /var/log/nova-sonic:/var/log/nova-sonic \\',
       `  -e AWS_REGION=${this.region} \\`,
       `  -e DYNAMODB_TABLE_NAME=${this.table.tableName} \\`,
       '  -e STUN_SERVER=stun:stun.l.google.com:19302 \\',
@@ -150,14 +156,18 @@ export class ApiEc2Stack extends cdk.Stack {
       '  -e HOST=0.0.0.0 \\',
       '  -e PORT=8000 \\',
       '  -e LOG_LEVEL=INFO \\',
+      '  -e LOG_FILE_PATH=/var/log/nova-sonic/api.log \\',
       '  -e NOVA_SONIC_VOICE_ID=tiffany \\',
+      `  -e NOVA_AWS_REGION=${this.novaAwsRegion} \\`,
+      '  -e NOVA_AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID} \\',
+      '  -e NOVA_AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY} \\',
       `  ${ecrImageUrl}`
     );
 
     // Create Auto Scaling Group
     this.autoScalingGroup = new autoscaling.AutoScalingGroup(this, 'ApiASG', {
       vpc: props.vpc,
-      instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.XLARGE2),
+      instanceType: ec2.InstanceType.of(ec2.InstanceClass.C7G, ec2.InstanceSize.XLARGE),
       machineImage: ec2.MachineImage.latestAmazonLinux2023({
         cpuType: ec2.AmazonLinuxCpuType.ARM_64,
       }),

@@ -21,6 +21,7 @@ interface ApiStackProps extends cdk.StackProps {
    * DynamoDB table for conversation history
    */
   dynamoDbTable: dynamodb.Table;
+  novaAwsRegion?: string;
 }
 
 export class ApiStack extends cdk.Stack {
@@ -29,12 +30,14 @@ export class ApiStack extends cdk.Stack {
   // public readonly webrtcLoadBalancer: elbv2.NetworkLoadBalancer;
   public readonly table: dynamodb.Table;
   public readonly cluster: ecs.Cluster;
+  public readonly novaAwsRegion: string;
 
   constructor(scope: Construct, id: string, props: ApiStackProps) {
     super(scope, id, props);
 
     // Use the provided DynamoDB table
     this.table = props.dynamoDbTable;
+    this.novaAwsRegion = props.novaAwsRegion || 'us-east-1';
 
     // Create ECS Cluster
     this.cluster = new ecs.Cluster(this, 'ApiCluster', {
@@ -115,6 +118,9 @@ let container: ecs.ContainerDefinition;
       'PORT': '8000',
       'LOG_LEVEL': 'INFO',
       'NOVA_SONIC_VOICE_ID': 'tiffany',
+      'NOVA_AWS_REGION': this.novaAwsRegion,
+      'NOVA_AWS_ACCESS_KEY_ID': '#{AWS_ACCESS_KEY_ID}',
+      'NOVA_AWS_SECRET_ACCESS_KEY': '#{AWS_SECRET_ACCESS_KEY}',
     },
     portMappings: [
       {

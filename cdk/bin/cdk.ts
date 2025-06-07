@@ -32,7 +32,7 @@ if (fs.existsSync(dnsConfigPath)) {
   }
 }
 
-// Create the main stack
+// Create the main stack - AppSync is now completely separated
 new CdkStack(app, 'NovaSonicStack', {
   env,
   description: 'Nova Sonic Speech-to-Speech Application Infrastructure',
@@ -49,6 +49,10 @@ if (dnsConfig) {
 } else {
   console.log('HTTPS is not enabled. Using HTTP with ALB DNS names.');
 }
+
+// Log AppSync deployment information
+console.log('AppSync API is deployed separately using the deploy-appsync.ts script');
+console.log('To deploy AppSync: npx cdk deploy --app "npx ts-node bin/deploy-appsync.ts"');
 
 // Tag all resources
 cdk.Tags.of(app).add('Project', 'NovaSonic');
