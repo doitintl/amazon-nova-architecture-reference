@@ -30,4 +30,32 @@ export default defineConfig({
       },
     },
   },
+  // Configure optimizations for AWS AppSync and related packages
+  optimizeDeps: {
+    include: ['aws-appsync', 'graphql-tag', 'graphql'],
+    esbuildOptions: {
+      // Needed to make aws-sdk work
+      define: {
+        global: 'globalThis',
+      },
+    },
+  },
+  // Configure build options
+  build: {
+    commonjsOptions: {
+      transformMixedEsModules: true, // Handle mixed ES/CommonJS modules
+    },
+    rollupOptions: {
+      // External packages that shouldn't be bundled
+      external: [],
+    },
+  },
+  // Configure resolve options
+  resolve: {
+    alias: {
+      // Add any necessary aliases here
+      'process': 'process/browser',
+      'buffer': 'buffer',
+    },
+  },
 });

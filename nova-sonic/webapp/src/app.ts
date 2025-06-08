@@ -4,10 +4,9 @@
  * SPDX-License-Identifier: BSD 2-Clause License
  */
 
-// Polyfill for 'global' to fix aws-appsync compatibility in browser environments
-if (typeof window !== 'undefined' && !window.global) {
-  window.global = window;
-}
+// Import required libraries for AppSync Events API
+import { Amplify } from 'aws-amplify';
+import { events } from 'aws-amplify/data';
 
 import { SmallWebRTCTransport } from "@pipecat-ai/small-webrtc-transport";
 import {
@@ -18,14 +17,13 @@ import {
 import "./style.css";
 import { VoiceVisualizer } from "./voice-visualizer";
 
-// Types for GraphQL data
+// Types for AppSync Events data
 interface Conversation {
   conversation_id: string;
   timestamp: string;
   speaker?: string;
-  text?: string;
   language?: string;
-  confidence?: number;
+  conversation?: string; // Add conversation field to store the conversation content
 }
 
 interface Booking {
@@ -36,43 +34,9 @@ interface Booking {
   num_guests: number;
 }
 
-// GraphQL subscription operations
-const SUBSCRIPTION_CONVERSATION_CREATED = `
-  subscription OnConversationCreated {
-    onConversationCreated {
-      conversation_id
-      timestamp
-      speaker
-      text
-      language
-      confidence
-    }
-  }
-`;
-
-const SUBSCRIPTION_BOOKING_CREATED = `
-  subscription OnBookingCreated {
-    onBookingCreated {
-      booking_id
-      date
-      name
-      hour
-      num_guests
-    }
-  }
-`;
-
-const SUBSCRIPTION_BOOKING_DELETED = `
-  subscription OnBookingDeleted {
-    onBookingDeleted {
-      booking_id
-      date
-      name
-      hour
-      num_guests
-    }
-  }
-`;
+// AppSync Events subscription names
+const EVENT_CONVERSATION_CREATED = 'onCreateConversation';
+const EVENT_BOOKING_CREATED = 'onCreateBooking';
 
 class WebRTCApp {
   // UI elements
@@ -98,12 +62,12 @@ class WebRTCApp {
   private selfViewVideo!: HTMLVideoElement;
   private videoContainer!: HTMLElement;
   private botName!: HTMLElement;
-  private transcriptContainer!: HTMLElement;
   private dataTableContainer!: HTMLElement;
   private dataTable!: HTMLElement;
   private dataTableBody!: HTMLElement;
   private dataTableStatus!: HTMLElement;
-  // Removed unused dataTableTabs variable
+  private novaTranscribeStatus!: HTMLElement;
+  private novaTranscribeBody!: HTMLElement;
 
   // State
   private connected: boolean = false;
@@ -113,16 +77,16 @@ class WebRTCApp {
   private smallWebRTCTransport!: SmallWebRTCTransport;
   private rtviClient!: RTVIClient;
   private declare voiceVisualizer: VoiceVisualizer;
-  private transcripts: Array<{timestamp: string, role: string, content: string}> = [];
+  private transcripts: Array<{timestamp: string, role: string, content: string, language?: string, confidence?: number}> = [];
   
-  // AppSync subscriptions
-  // These will be used in future real AppSync implementation
-  // Currently using mock data with intervals
+  // AppSync Events channels and subscriptions
+  private eventChannels: Map<string, any> = new Map();
+  private eventSubscriptions: Map<string, any> = new Map();
   
   // Data state
   private conversations: Conversation[] = [];
   private bookings: Booking[] = [];
-  private activeDataTab: 'conversations' | 'bookings' = 'conversations';
+  private activeDataTab: 'bookings' = 'bookings';
   private appSyncApiUrl: string = '';
   private appSyncApiKey: string = '';
 
@@ -152,22 +116,29 @@ class WebRTCApp {
       // Get runtime configuration
       const runtimeConfig = (window as any).runtimeConfig || {};
       
-      // Configure AppSync endpoint
+      // Configure AppSync endpoint using runtime configuration
       this.appSyncApiUrl = runtimeConfig.APPSYNC_API_URL;
       this.appSyncApiKey = runtimeConfig.APPSYNC_API_KEY;
       
       if (!this.appSyncApiUrl || !this.appSyncApiKey) {
         this.log("AppSync configuration missing. Using mock data for demonstration.", "error");
       } else {
-        this.log(`AppSync configured with URL: ${this.appSyncApiUrl}`, "status");
+        this.log(`AppSync Events API configured with URL: ${this.appSyncApiUrl}`, "status");
         this.log(`Using API Key: ${this.appSyncApiKey.substring(0, 8)}...${this.appSyncApiKey.substring(this.appSyncApiKey.length - 4)}`, "status");
         
-        // Verify API key format
-        if (!this.appSyncApiKey.startsWith('da2-')) {
-          this.log(`Warning: API key format may be invalid. AppSync API keys typically start with 'da2-'`, "error");
-        }
+        // Configure Amplify for Events API
+        Amplify.configure({
+          API: {
+            Events: {
+              endpoint: `${this.appSyncApiUrl}/event`,
+              region: this.extractRegionFromUrl(this.appSyncApiUrl),
+              defaultAuthMode: "apiKey",
+              apiKey: this.appSyncApiKey
+            }
+          }
+        });
         
-        this.log("AppSync configured successfully", "status");
+        this.log("Amplify configured successfully for AppSync Events API", "status");
       }
       
       // Subscribe to data changes
@@ -180,380 +151,169 @@ class WebRTCApp {
   }
   
   /**
-   * Subscribe to real-time data changes from AppSync
+   * Extract AWS region from AppSync URL
    */
-  private subscribeToDataChanges(): void {
+  private extractRegionFromUrl(url: string): string {
+    const regionMatch = url.match(/appsync-api\.([^.]+)\.amazonaws\.com/);
+    return regionMatch ? regionMatch[1] : 'ap-southeast-1'; // Default to ap-southeast-1 if not found
+  }
+  
+  /**
+   * Subscribe to real-time data changes from AppSync Events API
+   */
+  private async subscribeToDataChanges(): Promise<void> {
     try {
       // Set up data subscriptions
-      this.updateDataTableStatus("Setting up data subscriptions...");
+      this.updateDataTableStatus("Setting up AppSync Events API subscriptions...");
       
-      // Subscribe to Nova Transcribe data
-      this.setupSubscription(
-        SUBSCRIPTION_CONVERSATION_CREATED,
-        (data) => {
-          const conversation = data.onConversationCreated;
-          if (conversation) {
-            this.conversations.unshift(conversation);
-            this.log(`Received new conversation data: ${conversation.text}`, "status");
-            this.updateDataTable();
+      // Check if AppSync configuration is available
+      if (!this.appSyncApiUrl || !this.appSyncApiKey) {
+        this.log("AppSync configuration missing. Using mock data instead.", "error");
+        return;
+      }
+      
+      // Set up channel for conversation events
+      this.log("Setting up Events API channel for conversation events", "status");
+      try {
+        // Connect to the conversation channel
+        const conversationChannel = await events.connect('events/conversations');
+        this.eventChannels.set(EVENT_CONVERSATION_CREATED, conversationChannel);
+        
+        // Subscribe to the channel
+        const conversationSubscription = conversationChannel.subscribe({
+          next: (data) => {
+            this.log("Received conversation event from Events API", "status");
+            console.log("[Events API] Conversation data:", data);
             
-            // Update status message
-            this.updateDataTableStatus("Last update: " + new Date().toLocaleTimeString());
+            if (data && data.event) {
+              // Update the data table status
+              this.updateDataTableStatus(`Last update: ${new Date().toLocaleTimeString()} - REAL DATA`);
+              
+              // Process the event data - data.event contains the conversation data
+              this.handleConversationEvent({ payload: data.event });
+            }
+          },
+          error: (error) => {
+            this.log(`Events API error for conversation events: ${error}`, "error");
+            console.error("Events API subscription error:", error);
           }
-        },
-        (error) => {
-          this.log(`Conversation subscription error: ${error}`, "error");
-        }
-      );
+        });
+        
+        // Store subscription for cleanup
+        this.eventSubscriptions.set(EVENT_CONVERSATION_CREATED, conversationSubscription);
+        this.log("Successfully subscribed to conversation events", "status");
+        
+      } catch (error) {
+        this.log(`Failed to set up Events API for conversation events: ${error}`, "error");
+        console.error("Events API setup error:", error);
+     }
       
-      // Subscribe to RestaurantBooking data
-      this.setupSubscription(
-        SUBSCRIPTION_BOOKING_CREATED,
-        (data) => {
-          const booking = data.onBookingCreated;
-          if (booking) {
-            this.bookings.unshift(booking);
-            this.log(`Received new booking: ${booking.name} for ${booking.date} at ${booking.hour}`, "status");
-            this.updateDataTable();
+      // Set up channel for booking events
+      this.log("Setting up Events API channel for booking events", "status");
+      try {
+        // Connect to the booking channel
+        const bookingChannel = await events.connect('/default/booking');
+        this.eventChannels.set(EVENT_BOOKING_CREATED, bookingChannel);
+        
+        // Subscribe to the channel
+        const bookingSubscription = bookingChannel.subscribe({
+          next: (data) => {
+            this.log("Received booking event from Events API", "status");
+            console.log("[Events API] Booking data:", data);
             
-            // Update status message
-            this.updateDataTableStatus("Last update: " + new Date().toLocaleTimeString());
+            if (data && data.payload) {
+              // Update the data table status
+              this.updateDataTableStatus(`Last update: ${new Date().toLocaleTimeString()} - REAL DATA`);
+              
+              // Process the event data
+              this.handleBookingEvent({ payload: data.payload });
+            }
+          },
+          error: (error) => {
+            this.log(`Events API error for booking events: ${error}`, "error");
+            console.error("Events API subscription error:", error);
           }
-        },
-        (error) => {
-          this.log(`Booking subscription error: ${error}`, "error");
-        }
-      );
+        });
+        
+        // Store subscription for cleanup
+        this.eventSubscriptions.set(EVENT_BOOKING_CREATED, bookingSubscription);
+        this.log("Successfully subscribed to booking events", "status");
+        
+      } catch (error) {
+        this.log(`Failed to set up Events API for booking events: ${error}`, "error");
+        console.error("Events API setup error:", error);
+      }
       
-      this.setupSubscription(
-        SUBSCRIPTION_BOOKING_DELETED,
-        (data) => {
-          const deletedBooking = data.onBookingDeleted;
-          if (deletedBooking) {
-            this.bookings = this.bookings.filter(b => b.booking_id !== deletedBooking.booking_id);
-            this.log(`Booking deleted: ${deletedBooking.booking_id}`, "status");
-            this.updateDataTable();
-            
-            // Update status message
-            this.updateDataTableStatus("Last update: " + new Date().toLocaleTimeString());
-          }
-        },
-        (error) => {
-          this.log(`Booking deletion subscription error: ${error}`, "error");
-        }
-      );
-      
-      this.log("Successfully subscribed to data feeds", "status");
+      this.log("Successfully subscribed to AppSync Events API", "status");
       
       // Update status
-      this.updateDataTableStatus("Waiting for data...");
+      this.updateDataTableStatus("Waiting for events...");
       
     } catch (error) {
       const err = error as Error;
-      this.log(`Failed to subscribe to data changes: ${err.message}`, "error");
-      console.error("Subscription error:", error);
+      this.log(`Failed to subscribe to AppSync Events API: ${err.message}`, "error");
+      console.error("AppSync Events API subscription error:", error);
       this.updateDataTableStatus(`Error: ${err.message}`);
     }
   }
   
+  
   /**
-   * Set up a GraphQL subscription using WebSocket
+   * Handle conversation event data
    */
-  private setupSubscription(
-    query: string,
-    onData: (data: any) => void,
-    onError: (error: string) => void
-  ): void {
-    try {
-      // Check if AppSync configuration is available
-      if (!this.appSyncApiUrl || !this.appSyncApiKey) {
-        this.log("AppSync configuration missing. Using mock data instead.", "error");
-        this.setupMockSubscription(query, onData);
-        return;
-      }
-
-      // Log AppSync configuration
-      this.log(`Configuring AppSync with URL: ${this.appSyncApiUrl}`, "status");
-      this.log(`API Key: ${this.appSyncApiKey.substring(0, 5)}...`, "status");
+  private handleConversationEvent(data: any): void {
+    // Check if the data follows the new format with event property
+    const conversation = data?.event || data?.payload;
+    if (conversation) {
+      // Log the raw conversation data for debugging
+      console.log("[AppSync Events] Raw conversation data:", JSON.stringify(conversation));
       
-      // Extract the subscription name from the query
-      let subscriptionName = '';
-      if (query.includes('OnConversationCreated')) {
-        subscriptionName = 'onConversationCreated';
-      } else if (query.includes('OnBookingCreated')) {
-        subscriptionName = 'onBookingCreated';
-      } else if (query.includes('OnBookingDeleted')) {
-        subscriptionName = 'onBookingDeleted';
-      }
+      // Create a properly formatted conversation object from the received data
+      const formattedConversation: Conversation = {
+        conversation_id: conversation.conversation_id || `conv-${Date.now()}`,
+        timestamp: conversation.timestamp || new Date().toISOString(),
+        conversation: conversation.conversation || conversation.text || 'No content'
+      };
       
-      this.log(`Setting up subscription for: ${subscriptionName}`, "status");
+      // Add to conversations array
+      this.conversations.unshift(formattedConversation);
       
-      // Verify API key format
-      if (!this.appSyncApiKey.startsWith('da2-')) {
-        this.log(`Invalid API key format. API keys should start with 'da2-'`, "error");
-        this.setupMockSubscription(query, onData);
-        return;
-      }
+      // Log the appropriate message content
+      const messageContent = formattedConversation.conversation || 'No content';
+      this.log(`Received new conversation data: ${messageContent}`, "status");
       
-      // Set up a WebSocket connection for real-time updates using the AppSync client
-      this.setupWebSocketConnection(subscriptionName, onData, onError);
+      // Update the Nova Transcribe table
+      this.updateNovaTranscribe();
       
-      // Log success
-      this.log(`AppSync subscription setup initiated for ${subscriptionName}`, "status");
-    } catch (error) {
-      const err = error as Error;
-      this.log(`Failed to set up AppSync subscription: ${err.message}`, "error");
-      console.error("AppSync subscription setup error:", error);
+      // Update status message
+      this.updateDataTableStatus("Last update: " + new Date().toLocaleTimeString());
       
-      onError(err.message);
-      
-      // Fall back to mock data if setup fails
-      this.log("Falling back to mock data due to setup error", "status");
-      this.setupMockSubscription(query, onData);
+      // Log detailed data structure for debugging
+      console.log("[AppSync Events] Formatted conversation:", JSON.stringify(formattedConversation));
+    } else {
+      this.log("Received conversation event with invalid data structure", "error");
+      console.error("[AppSync Events] Invalid conversation data:", data);
     }
   }
   
   /**
-   * Set up a WebSocket connection to AppSync for real-time updates
+   * Handle booking event data
    */
-  private setupWebSocketConnection(
-    subscriptionName: string,
-    onData: (data: any) => void,
-    onError: (error: string) => void
-  ): void {
-    try {
-      this.log("Setting up WebSocket connection for real-time updates", "status");
-      this.log(`AppSync API URL: ${this.appSyncApiUrl}`, "status");
-      this.log(`AppSync API Key: ${this.appSyncApiKey.substring(0, 8)}...${this.appSyncApiKey.substring(this.appSyncApiKey.length - 4)}`, "status");
+  private handleBookingEvent(data: any): void {
+    const booking = data?.payload;
+    if (booking) {
+      this.bookings.unshift(booking);
+      this.log(`Received new booking: ${booking.name} for ${booking.date} at ${booking.hour}`, "status");
+      this.updateDataTable();
       
-      // Log to browser console for debugging
-      console.log("[AppSync Debug] Setting up WebSocket connection");
-      console.log("[AppSync Debug] API URL:", this.appSyncApiUrl);
-      console.log("[AppSync Debug] API Key:", `${this.appSyncApiKey.substring(0, 8)}...${this.appSyncApiKey.substring(this.appSyncApiKey.length - 4)}`);
+      // Update status message
+      this.updateDataTableStatus("Last update: " + new Date().toLocaleTimeString());
       
-      // Import required libraries for AppSync subscriptions
-      this.log("Importing AWS AppSync client libraries...", "status");
-      import('aws-appsync').then(({ default: AWSAppSyncClient }) => {
-        this.log("AWS AppSync client library loaded successfully", "status");
-        import('graphql-tag').then(({ default: gql }) => {
-          this.log("GraphQL tag library loaded successfully", "status");
-          
-          // Extract region from API URL
-          const regionMatch = this.appSyncApiUrl.match(/appsync-api\.([^.]+)\.amazonaws\.com/);
-          const region = regionMatch ? regionMatch[1] : 'us-west-1';
-          this.log(`Detected AWS region: ${region}`, "status");
-          
-          // Create AppSync client
-          this.log("Creating AppSync client...", "status");
-          const client = new AWSAppSyncClient({
-            url: this.appSyncApiUrl,
-            region: region,
-            auth: {
-              type: 'API_KEY',
-              apiKey: this.appSyncApiKey,
-            },
-            disableOffline: true,
-          });
-          
-          this.log(`Setting up AppSync subscription: ${subscriptionName}`, "status");
-          
-          // Define subscription query based on subscription name
-          let subscriptionQuery;
-          if (subscriptionName === 'onConversationCreated') {
-            subscriptionQuery = gql`
-              subscription OnConversationCreated {
-                onConversationCreated {
-                  conversation_id
-                  timestamp
-                  speaker
-                  text
-                  language
-                  confidence
-                }
-              }
-            `;
-            this.log("Using OnConversationCreated subscription query", "status");
-          } else if (subscriptionName === 'onBookingCreated') {
-            subscriptionQuery = gql`
-              subscription OnBookingCreated {
-                onBookingCreated {
-                  booking_id
-                  date
-                  name
-                  hour
-                  num_guests
-                }
-              }
-            `;
-            this.log("Using OnBookingCreated subscription query", "status");
-          } else if (subscriptionName === 'onBookingDeleted') {
-            subscriptionQuery = gql`
-              subscription OnBookingDeleted {
-                onBookingDeleted {
-                  booking_id
-                  date
-                  name
-                  hour
-                  num_guests
-                }
-              }
-            `;
-            this.log("Using OnBookingDeleted subscription query", "status");
-          }
-          
-          if (!subscriptionQuery) {
-            throw new Error(`Unknown subscription name: ${subscriptionName}`);
-          }
-          
-          // Subscribe to the AppSync subscription
-          this.log("Connecting to AppSync real-time subscription...", "status");
-          console.log("[AppSync Debug] Connecting to subscription:", subscriptionName);
-          
-          try {
-            const subscription = client.subscribe({
-              query: subscriptionQuery,
-              fetchPolicy: 'network-only',
-            }).subscribe({
-              next: (data) => {
-                this.log(`Received real-time data from AppSync: ${subscriptionName}`, "status");
-                console.log("[AppSync Debug] Received data:", data);
-                
-                // Update the data table status
-                this.updateDataTableStatus(`Last update: ${new Date().toLocaleTimeString()} - REAL DATA`);
-                
-                onData(data.data);
-              },
-              error: (error) => {
-                this.log(`AppSync subscription error: ${error.message}`, "error");
-                console.error("[AppSync Debug] Subscription error:", error);
-                onError(error.message);
-                
-                // Fall back to mock data if subscription fails
-                this.log("Falling back to mock data due to subscription error", "status");
-                this.setupMockSubscription(subscriptionName, onData, onError);
-              },
-              complete: () => {
-                this.log(`AppSync subscription completed: ${subscriptionName}`, "status");
-                console.log("[AppSync Debug] Subscription completed");
-              }
-            });
-            
-            // Store the subscription for cleanup
-            (window as any).appSyncSubscriptions = (window as any).appSyncSubscriptions || [];
-            (window as any).appSyncSubscriptions.push(subscription);
-            
-            this.log(`AppSync subscription ${subscriptionName} set up successfully`, "status");
-          } catch (subscriptionError) {
-            const err = subscriptionError as Error;
-            this.log(`Error creating subscription: ${err.message}`, "error");
-            console.error("[AppSync Debug] Error creating subscription:", err);
-            
-            // Fall back to mock data
-            this.setupMockSubscription(subscriptionName, onData, onError);
-          }
-        }).catch(error => {
-          this.log(`Failed to import graphql-tag: ${error.message}`, "error");
-          console.error("[AppSync Debug] Failed to import graphql-tag:", error);
-          this.setupMockSubscription(subscriptionName, onData, onError);
-        });
-      }).catch(error => {
-        this.log(`Failed to import aws-appsync: ${error.message}`, "error");
-        console.error("[AppSync Debug] Failed to import aws-appsync:", error);
-        this.setupMockSubscription(subscriptionName, onData, onError);
-      });
-    } catch (error) {
-      const err = error as Error;
-      console.error("WebSocket connection error:", err.message);
-      
-      // Fall back to mock data for any other errors
-      // We need to determine the appropriate query based on the subscription name
-      let query = '';
-      if (subscriptionName === 'onConversationCreated') {
-        query = SUBSCRIPTION_CONVERSATION_CREATED;
-      } else if (subscriptionName === 'onBookingCreated') {
-        query = SUBSCRIPTION_BOOKING_CREATED;
-      } else if (subscriptionName === 'onBookingDeleted') {
-        query = SUBSCRIPTION_BOOKING_DELETED;
-      }
-      
-      this.setupMockSubscription(query, onData, onError);
-    }
-  }
-  
-  /**
-   * Set up a mock subscription for testing or when AppSync is unavailable
-   */
-  private setupMockSubscription(
-    query: string,
-    onData: (data: any) => void,
-    onError?: (error: string) => void
-  ): void {
-    try {
-      this.log("⚠️ USING MOCK DATA - Not connected to real DynamoDB ⚠️", "error");
-      console.warn("[AppSync Debug] Using mock data instead of real DynamoDB data");
-      
-      // Update the data table status to clearly indicate mock data
-      this.updateDataTableStatus("⚠️ USING MOCK DATA - Not connected to real DynamoDB");
-      
-      // Generate initial mock data immediately
-      if (query === SUBSCRIPTION_CONVERSATION_CREATED) {
-        // Generate mock conversation data
-        const initialConversation: Conversation = {
-          conversation_id: `mock-conv-${Date.now()}`,
-          timestamp: new Date().toISOString(),
-          speaker: "Assistant",
-          text: "[MOCK DATA] Welcome to Nova Sonic! How can I help you today?",
-          language: "en-US",
-          confidence: 0.95
-        };
-        
-        // Send initial data immediately
-        setTimeout(() => {
-          onData({ onConversationCreated: initialConversation });
-        }, 500);
-      }
-      
-      // Set up interval for continuous mock data generation
-      const mockDataInterval = setInterval(() => {
-        if (query === SUBSCRIPTION_CONVERSATION_CREATED) {
-          // Generate mock conversation data
-          const mockConversation: Conversation = {
-            conversation_id: `mock-conv-${Date.now()}`,
-            timestamp: new Date().toISOString(),
-            speaker: Math.random() > 0.5 ? "User" : "Assistant",
-            text: `[MOCK DATA] Sample conversation text ${Math.floor(Math.random() * 1000)}`,
-            language: "en-US",
-            confidence: Math.random()
-          };
-          
-          onData({ onConversationCreated: mockConversation });
-        } else if (query === SUBSCRIPTION_BOOKING_CREATED && Math.random() > 0.5) {
-          // Generate mock booking data more frequently (50% chance)
-          const mockBooking: Booking = {
-            booking_id: `mock-book-${Date.now()}`,
-            date: new Date().toISOString().split('T')[0],
-            name: `[MOCK] Customer ${Math.floor(Math.random() * 100)}`,
-            hour: `${Math.floor(Math.random() * 12 + 1)}:00 ${Math.random() > 0.5 ? 'AM' : 'PM'}`,
-            num_guests: Math.floor(Math.random() * 10) + 1
-          };
-          
-          onData({ onBookingCreated: mockBooking });
-        }
-      }, 3000); // Generate mock data every 3 seconds (faster for demo)
-      
-      // Store the interval ID so we can clear it later
-      (window as any).mockDataIntervals = (window as any).mockDataIntervals || [];
-      (window as any).mockDataIntervals.push(mockDataInterval);
-      
-      this.log("Mock subscription set up successfully", "status");
-    } catch (error) {
-      const err = error as Error;
-      console.error("Mock subscription error:", err);
-      
-      // Call onError if provided
-      if (onError) {
-        onError(err.message);
-      }
+      // Log detailed data structure for debugging
+      console.log("[AppSync Events] Booking data structure:", JSON.stringify(booking));
+    } else {
+      this.log("Received booking event with invalid data structure", "error");
+      console.error("[AppSync Events] Invalid booking data:", data);
     }
   }
   
@@ -902,34 +662,7 @@ class WebRTCApp {
     ) as HTMLElement;
     this.botName = document.getElementById("bot-name") as HTMLElement;
     
-    // Get transcript container and log if it's found
-    this.transcriptContainer = document.getElementById("conversation-transcript") as HTMLElement;
-    console.log("[TRANSCRIPT DEBUG] In setupDOMElements, transcriptContainer found:", !!this.transcriptContainer);
-    
-    // If we have stored transcripts, load them
-    const storedTranscripts = localStorage.getItem("conversation-transcripts");
-    if (storedTranscripts && this.transcriptContainer) {
-      try {
-        console.log("[TRANSCRIPT DEBUG] Found stored transcripts, attempting to load");
-        this.transcripts = JSON.parse(storedTranscripts);
-        
-        // Render stored transcripts
-        this.transcripts.forEach(transcript => {
-          const messageElement = document.createElement("div");
-          messageElement.className = `transcript-message ${transcript.role.toLowerCase()}`;
-          messageElement.innerHTML = `
-            <span class="timestamp">${transcript.timestamp}</span>
-            <span class="role">${transcript.role}</span>
-            <span class="content">${transcript.content}</span>
-          `;
-          this.transcriptContainer.appendChild(messageElement);
-        });
-        
-        console.log("[TRANSCRIPT DEBUG] Loaded", this.transcripts.length, "stored transcripts");
-      } catch (e) {
-        console.error("[TRANSCRIPT DEBUG] Error loading stored transcripts:", e);
-      }
-    }
+    // We're removing the transcript container as per requirements
     
     // Set up data table container
     this.setupDataTableUI();
@@ -971,7 +704,6 @@ class WebRTCApp {
     this.dataTableContainer.innerHTML = `
       <div class="data-table-header">
         <div class="data-table-tabs">
-          <button class="data-tab active" data-type="conversations">Nova Transcribe</button>
           <button class="data-tab" data-type="bookings">Restaurant Bookings</button>
         </div>
         <div class="data-table-status">Waiting for data...</div>
@@ -980,11 +712,11 @@ class WebRTCApp {
         <table class="data-table">
           <thead>
             <tr id="data-table-headers">
+              <th>Booking ID</th>
+              <th>Name</th>
+              <th>Date</th>
               <th>Time</th>
-              <th>Speaker</th>
-              <th>Text</th>
-              <th>Language</th>
-              <th>Confidence</th>
+              <th>Guests</th>
             </tr>
           </thead>
           <tbody id="data-table-body">
@@ -1001,24 +733,63 @@ class WebRTCApp {
     this.dataTableBody = this.dataTableContainer.querySelector("#data-table-body") as HTMLElement;
     this.dataTableStatus = this.dataTableContainer.querySelector(".data-table-status") as HTMLElement;
     
-    // Add event listeners for data table tabs
-    const dataTabs = this.dataTableContainer.querySelectorAll(".data-tab");
-    dataTabs.forEach(tab => {
-      tab.addEventListener("click", () => {
-        // Remove active class from all tabs
-        dataTabs.forEach(t => t.classList.remove("active"));
-        
-        // Add active class to clicked tab
-        tab.classList.add("active");
-        
-        // Update active data tab
-        const dataType = tab.getAttribute("data-type") as 'conversations' | 'bookings';
-        if (dataType) {
-          this.activeDataTab = dataType;
-          this.updateDataTable();
-        }
-      });
-    });
+    // Set active tab to bookings by default
+    this.activeDataTab = 'bookings';
+    
+    // Create Nova Transcribe container outside of data table
+    this.setupNovaTranscribeUI();
+  }
+  
+  /**
+   * Set up the Nova Transcribe UI outside of the data table
+   * This creates a separate container below the main-content div
+   */
+  private setupNovaTranscribeUI(): void {
+    // Check if container already exists
+    let novaTranscribeContainer = document.getElementById("nova-transcribe-container");
+    
+    if (!novaTranscribeContainer) {
+      // Create the Nova Transcribe container
+      novaTranscribeContainer = document.createElement("div");
+      novaTranscribeContainer.id = "nova-transcribe-container";
+      novaTranscribeContainer.className = "nova-transcribe-container";
+      
+      // Create the HTML structure with only timestamp and conversation columns
+      novaTranscribeContainer.innerHTML = `
+        <div class="nova-transcribe-header">
+          <h3>Nova Transcribe</h3>
+          <div class="nova-transcribe-status">Waiting for data...</div>
+        </div>
+        <div class="nova-transcribe-wrapper">
+          <table class="nova-transcribe-table">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Conversation</th>
+              </tr>
+            </thead>
+            <tbody id="nova-transcribe-body">
+              <tr>
+                <td colspan="2" class="nova-transcribe-empty">No transcription data available</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      `;
+      
+      // Insert after the main-content div
+      const mainContent = document.querySelector(".main-content");
+      if (mainContent && mainContent.parentNode) {
+        mainContent.parentNode.insertBefore(novaTranscribeContainer, mainContent.nextSibling);
+      } else {
+        // Fallback: append to body if main-content not found
+        document.body.appendChild(novaTranscribeContainer);
+      }
+    }
+    
+    // Get references to the Nova Transcribe elements
+    this.novaTranscribeStatus = novaTranscribeContainer.querySelector(".nova-transcribe-status") as HTMLElement;
+    this.novaTranscribeBody = novaTranscribeContainer.querySelector("#nova-transcribe-body") as HTMLElement;
   }
 
   private setupDOMEventListeners(): void {
@@ -1037,7 +808,7 @@ class WebRTCApp {
       this.disconnectBtn.addEventListener("click", () => void this.stop());
     }
     
-    // Set up panel tab switching
+    // Set up panel tab switching - only debug and data-table tabs
     const panelTabs = document.querySelectorAll('.panel-tab');
     panelTabs.forEach(tab => {
       tab.addEventListener('click', () => {
@@ -1052,13 +823,17 @@ class WebRTCApp {
         const tabName = tab.getAttribute('data-tab');
         if (tabName === 'debug') {
           document.getElementById('debug-log')?.classList.add('active');
-        } else if (tabName === 'transcript') {
-          document.getElementById('conversation-transcript')?.classList.add('active');
         } else if (tabName === 'data-table') {
           document.getElementById('data-table-container')?.classList.add('active');
         }
       });
     });
+    
+    // Remove any existing transcript tab if it exists
+    const transcriptTab = document.querySelector('.panel-tab[data-tab="transcript"]');
+    if (transcriptTab) {
+      transcriptTab.remove();
+    }
     
     // Add Data Table tab if it doesn't exist
     const panelTabsContainer = document.querySelector('.panel-tabs');
@@ -1089,6 +864,13 @@ class WebRTCApp {
         panelTabsContainer.appendChild(newDataTableTab);
         
         this.log("Added Data Table tab to UI", "status");
+      }
+      
+      // Ensure there's no transcript tab
+      const transcriptTab = panelTabsContainer.querySelector('.panel-tab[data-tab="transcript"]');
+      if (transcriptTab) {
+        transcriptTab.remove();
+        this.log("Removed Transcript tab from UI", "status");
       }
     }
 
@@ -1286,73 +1068,75 @@ class WebRTCApp {
     // Log the transcript
     console.log(`[TRANSCRIPT] ${transcript.timestamp} ${transcript.role}: ${transcript.content}`);
     
-    // Check if transcriptContainer is initialized
-    console.log("[TRANSCRIPT DEBUG] transcriptContainer exists:", !!this.transcriptContainer);
-    
-    // Check if the element exists in the DOM
-    const containerInDOM = document.getElementById("conversation-transcript");
-    console.log("[TRANSCRIPT DEBUG] conversation-transcript element in DOM:", !!containerInDOM);
-    
-    // If transcriptContainer is not initialized but exists in DOM, initialize it
-    if (!this.transcriptContainer && containerInDOM) {
-      console.log("[TRANSCRIPT DEBUG] Initializing transcriptContainer from DOM");
-      this.transcriptContainer = containerInDOM as HTMLElement;
-    }
-    
-    // Update UI with the transcript
-    if (this.transcriptContainer) {
-      console.log("[TRANSCRIPT DEBUG] Creating message element");
-      const messageElement = document.createElement("div");
-      messageElement.className = `transcript-message ${transcript.role.toLowerCase()}`;
-      
-      const html = `
-        <span class="timestamp">${transcript.timestamp}</span>
-        <span class="role">${transcript.role}</span>
-        <span class="content">${transcript.content}</span>
-      `;
-      console.log("[TRANSCRIPT DEBUG] Setting innerHTML:", html);
-      
-      messageElement.innerHTML = html;
-      this.transcriptContainer.appendChild(messageElement);
-      
-      // Check if the element was actually added
-      console.log("[TRANSCRIPT DEBUG] Element added, container now has children:", this.transcriptContainer.childElementCount);
-      
-      // Auto-scroll to the bottom
-      this.transcriptContainer.scrollTop = this.transcriptContainer.scrollHeight;
-      
-      // Make the transcript tab visible if it's not already
-      const transcriptTab = document.querySelector('.panel-tab[data-tab="transcript"]') as HTMLElement;
-      console.log("[TRANSCRIPT DEBUG] Transcript tab found:", !!transcriptTab);
-      
-      // Check if the transcript panel is active
-      const isActive = this.transcriptContainer.classList.contains("active");
-      console.log("[TRANSCRIPT DEBUG] Transcript panel is active:", isActive);
-      
-      // Add a visual indicator to the transcript tab if it's not active
-      if (transcriptTab && !isActive) {
-        transcriptTab.style.position = 'relative';
-        
-        // Add notification dot if it doesn't exist
-        if (!transcriptTab.querySelector('.notification-dot')) {
-          const notificationDot = document.createElement('span');
-          notificationDot.className = 'notification-dot';
-          notificationDot.style.position = 'absolute';
-          notificationDot.style.top = '5px';
-          notificationDot.style.right = '5px';
-          notificationDot.style.width = '8px';
-          notificationDot.style.height = '8px';
-          notificationDot.style.borderRadius = '50%';
-          notificationDot.style.backgroundColor = '#4f46e5';
-          transcriptTab.appendChild(notificationDot);
-        }
-      }
-    } else {
-      console.warn("[TRANSCRIPT DEBUG] Transcript container not found in the DOM");
-    }
+    // Update the Nova Transcribe table instead of the transcript container
+    this.updateNovaTranscribe();
     
     // Optionally store transcripts in localStorage for persistence
     localStorage.setItem("conversation-transcripts", JSON.stringify(this.transcripts));
+  }
+  
+  /**
+   * Update the Nova Transcribe table with the latest transcripts
+   */
+  private updateNovaTranscribe(): void {
+    if (!this.novaTranscribeBody) return;
+    
+    // Clear the table body
+    this.novaTranscribeBody.innerHTML = '';
+    
+    // Check if we have conversations from AppSync Events API
+    if (this.conversations.length > 0) {
+      // Use conversations data from AppSync Events API
+      this.conversations.forEach(conversation => {
+        const row = document.createElement('tr');
+        
+        // Format timestamp for display
+        const timestamp = new Date(conversation.timestamp);
+        const formattedTime = timestamp.toLocaleTimeString();
+        
+        row.innerHTML = `
+          <td>${formattedTime}</td>
+          <td>${conversation.conversation || 'No content'}</td>
+        `;
+        
+        this.novaTranscribeBody.appendChild(row);
+      });
+    } else if (this.transcripts.length === 0) {
+      // No data available
+      this.novaTranscribeBody.innerHTML = `
+        <tr>
+          <td colspan="2" class="nova-transcribe-empty">No transcription data available</td>
+        </tr>
+      `;
+      return;
+    } else {
+      // Use transcript data as fallback
+      this.transcripts.forEach(transcript => {
+        const row = document.createElement('tr');
+        
+        // Format timestamp for display
+        const timestamp = new Date(transcript.timestamp);
+        const formattedTime = timestamp.toLocaleTimeString();
+        
+        row.innerHTML = `
+          <td>${formattedTime}</td>
+          <td>${transcript.content || ''}</td>
+        `;
+        
+        this.novaTranscribeBody.appendChild(row);
+      });
+    }
+    
+    // Update status
+    if (this.novaTranscribeStatus) {
+      this.novaTranscribeStatus.textContent = `Last update: ${new Date().toLocaleTimeString()}`;
+    }
+    
+    // Auto-scroll to the bottom
+    const wrapper = this.novaTranscribeBody.closest('.nova-transcribe-wrapper');
+    if (wrapper) {
+      wrapper.scrollTop = wrapper.scrollHeight;
+    }
   }
 
   private onConnectedHandler(): void {
@@ -1617,16 +1401,25 @@ class WebRTCApp {
         this.log("Mock data intervals cleaned up", "status");
       }
       
-      // Clean up AppSync subscriptions
-      if ((window as any).appSyncSubscriptions) {
-        (window as any).appSyncSubscriptions.forEach((subscription: any) => {
-          if (subscription && typeof subscription.unsubscribe === 'function') {
-            subscription.unsubscribe();
-          }
-        });
-        (window as any).appSyncSubscriptions = [];
-        this.log("AppSync subscriptions cleaned up", "status");
-      }
+      // Clean up Events API subscriptions
+      this.eventSubscriptions.forEach((subscription, eventName) => {
+        if (subscription && typeof subscription.unsubscribe === 'function') {
+          this.log(`Unsubscribing from ${eventName}`, "status");
+          subscription.unsubscribe();
+        }
+      });
+      this.eventSubscriptions.clear();
+      
+      // Clean up Events API channels
+      this.eventChannels.forEach((channel, eventName) => {
+        if (channel && typeof channel.disconnect === 'function') {
+          this.log(`Disconnecting channel for ${eventName}`, "status");
+          channel.disconnect();
+        }
+      });
+      this.eventChannels.clear();
+      
+      this.log("Event subscriptions and channels cleaned up", "status");
     } catch (e) {
       const error = e as Error;
       this.log(`Error during disconnect: ${error.message}`, "error");
@@ -1643,81 +1436,32 @@ class WebRTCApp {
     // Clear the table body
     this.dataTableBody.innerHTML = '';
     
-    // Update table headers based on active tab
-    const headerRow = document.getElementById('data-table-headers');
-    if (headerRow) {
-      if (this.activeDataTab === 'conversations') {
-        headerRow.innerHTML = `
-          <th>Time</th>
-          <th>Speaker</th>
-          <th>Text</th>
-          <th>Language</th>
-          <th>Confidence</th>
-        `;
-      } else {
-        headerRow.innerHTML = `
-          <th>Booking ID</th>
-          <th>Name</th>
-          <th>Date</th>
-          <th>Time</th>
-          <th>Guests</th>
-        `;
-      }
+    // Only handle bookings data in the data table now
+    if (this.bookings.length === 0) {
+      this.dataTableBody.innerHTML = `
+        <tr>
+          <td colspan="5" class="data-table-empty">No booking data available</td>
+        </tr>
+      `;
+      return;
     }
     
-    // Display data based on active tab
-    if (this.activeDataTab === 'conversations') {
-      if (this.conversations.length === 0) {
-        this.dataTableBody.innerHTML = `
-          <tr>
-            <td colspan="5" class="data-table-empty">No conversation data available</td>
-          </tr>
-        `;
-        return;
-      }
+    // Add booking data rows
+    this.bookings.forEach(booking => {
+      const row = document.createElement('tr');
+      row.innerHTML = `
+        <td>${booking.booking_id}</td>
+        <td>${booking.name}</td>
+        <td>${booking.date}</td>
+        <td>${booking.hour}</td>
+        <td>${booking.num_guests}</td>
+      `;
       
-      // Add conversation data rows
-      this.conversations.forEach(conversation => {
-        const row = document.createElement('tr');
-        
-        // Format timestamp for display
-        const timestamp = new Date(conversation.timestamp);
-        const formattedTime = timestamp.toLocaleTimeString();
-        
-        row.innerHTML = `
-          <td>${formattedTime}</td>
-          <td>${conversation.speaker || 'Unknown'}</td>
-          <td>${conversation.text || ''}</td>
-          <td>${conversation.language || ''}</td>
-          <td>${conversation.confidence ? (conversation.confidence * 100).toFixed(1) + '%' : ''}</td>
-        `;
-        
-        this.dataTableBody.appendChild(row);
-      });
-    } else {
-      if (this.bookings.length === 0) {
-        this.dataTableBody.innerHTML = `
-          <tr>
-            <td colspan="5" class="data-table-empty">No booking data available</td>
-          </tr>
-        `;
-        return;
-      }
-      
-      // Add booking data rows
-      this.bookings.forEach(booking => {
-        const row = document.createElement('tr');
-        row.innerHTML = `
-          <td>${booking.booking_id}</td>
-          <td>${booking.name}</td>
-          <td>${booking.date}</td>
-          <td>${booking.hour}</td>
-          <td>${booking.num_guests}</td>
-        `;
-        
-        this.dataTableBody.appendChild(row);
-      });
-    }
+      this.dataTableBody.appendChild(row);
+    });
+    
+    // Update the Nova Transcribe table separately
+    this.updateNovaTranscribe();
   }
 
   /**
@@ -1788,6 +1532,22 @@ document.addEventListener("DOMContentLoaded", () => {
       window.webRTCApp.shutdown();
     }
   });
+  
+  // Remove any transcript tab that might be in the HTML
+  setTimeout(() => {
+    const transcriptTab = document.querySelector('.panel-tab[data-tab="transcript"]');
+    if (transcriptTab) {
+      transcriptTab.remove();
+      console.log("Removed Transcript tab from UI on page load");
+    }
+    
+    // Also remove any transcript content panel
+    const transcriptPanel = document.getElementById('transcript-container');
+    if (transcriptPanel) {
+      transcriptPanel.remove();
+      console.log("Removed Transcript panel from UI on page load");
+    }
+  }, 100);
 });
 
 export {};
