@@ -27,11 +27,16 @@ interface Conversation {
 }
 
 interface Booking {
-  booking_id: string;
+  bookingId: string;
   date: string;
   name: string;
   hour: string;
-  num_guests: number;
+  numGuests: number;
+  status: string;
+  timestamp: string;
+  source?: string;
+  eventName?: string;
+  type?: string;
 }
 
 // AppSync Events subscription names
@@ -212,7 +217,7 @@ class WebRTCApp {
       this.log("Setting up Events API channel for booking events", "status");
       try {
         // Connect to the booking channel
-        const bookingChannel = await events.connect('/default/booking');
+        const bookingChannel = await events.connect('events/restaurant-booking');
         this.eventChannels.set(EVENT_BOOKING_CREATED, bookingChannel);
         
         // Subscribe to the channel
@@ -221,12 +226,12 @@ class WebRTCApp {
             this.log("Received booking event from Events API", "status");
             console.log("[Events API] Booking data:", data);
             
-            if (data && data.payload) {
+            if (data && data.event) {
               // Update the data table status
               this.updateDataTableStatus(`Last update: ${new Date().toLocaleTimeString()} - REAL DATA`);
               
               // Process the event data
-              this.handleBookingEvent({ payload: data.payload });
+              this.handleBookingEvent({ event: data.event });
             }
           },
           error: (error) => {
@@ -300,17 +305,35 @@ class WebRTCApp {
    * Handle booking event data
    */
   private handleBookingEvent(data: any): void {
-    const booking = data?.payload;
+    // Check if the data follows the expected format with event property
+    const booking = data?.event || data?.payload;
     if (booking) {
-      this.bookings.unshift(booking);
-      this.log(`Received new booking: ${booking.name} for ${booking.date} at ${booking.hour}`, "status");
+      // Log the raw booking data for debugging
+      console.log("[AppSync Events] Raw booking data:", JSON.stringify(booking));
+      
+      // Create a properly formatted booking object from the received data
+      const formattedBooking: Booking = {
+        bookingId: booking.bookingId || '',
+        date: booking.date || '',
+        name: booking.name || '',
+        hour: booking.hour || '',
+        numGuests: booking.numGuests || 0,
+        status: booking.status || 'unknown',
+        timestamp: booking.timestamp || new Date().toISOString(),
+        source: booking.source,
+        eventName: booking.eventName,
+        type: booking.type
+      };
+      
+      this.bookings.unshift(formattedBooking);
+      this.log(`Received new booking: ${formattedBooking.name} for ${formattedBooking.date} at ${formattedBooking.hour}`, "status");
       this.updateDataTable();
       
       // Update status message
       this.updateDataTableStatus("Last update: " + new Date().toLocaleTimeString());
       
       // Log detailed data structure for debugging
-      console.log("[AppSync Events] Booking data structure:", JSON.stringify(booking));
+      console.log("[AppSync Events] Formatted booking data:", JSON.stringify(formattedBooking));
     } else {
       this.log("Received booking event with invalid data structure", "error");
       console.error("[AppSync Events] Invalid booking data:", data);
@@ -717,6 +740,10 @@ class WebRTCApp {
               <th>Date</th>
               <th>Time</th>
               <th>Guests</th>
+              <th>Status</th>
+              <th>Timestamp</th>
+              <th>Source</th>
+              <th>Event</th>
             </tr>
           </thead>
           <tbody id="data-table-body">
@@ -1440,7 +1467,7 @@ class WebRTCApp {
     if (this.bookings.length === 0) {
       this.dataTableBody.innerHTML = `
         <tr>
-          <td colspan="5" class="data-table-empty">No booking data available</td>
+          <td colspan="9" class="data-table-empty">No booking data available</td>
         </tr>
       `;
       return;
@@ -1449,12 +1476,22 @@ class WebRTCApp {
     // Add booking data rows
     this.bookings.forEach(booking => {
       const row = document.createElement('tr');
+      
+      // Format timestamp for better readability if it exists
+      const formattedTimestamp = booking.timestamp ?
+        new Date(booking.timestamp).toLocaleString() :
+        '';
+      
       row.innerHTML = `
-        <td>${booking.booking_id}</td>
-        <td>${booking.name}</td>
-        <td>${booking.date}</td>
-        <td>${booking.hour}</td>
-        <td>${booking.num_guests}</td>
+        <td>${booking.bookingId || ''}</td>
+        <td>${booking.name || ''}</td>
+        <td>${booking.date || ''}</td>
+        <td>${booking.hour || ''}</td>
+        <td>${booking.numGuests || 0}</td>
+        <td>${booking.status || ''}</td>
+        <td>${formattedTimestamp}</td>
+        <td>${booking.source || ''}</td>
+        <td>${booking.eventName || ''}</td>
       `;
       
       this.dataTableBody.appendChild(row);
