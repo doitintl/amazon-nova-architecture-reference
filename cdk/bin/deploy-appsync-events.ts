@@ -42,43 +42,32 @@ if (createNewTables) {
     env
   });
   
-  // Try to import existing DynamoDB tables
+  // Import existing DynamoDB tables
   console.log('Importing existing DynamoDB tables');
-  try {
-    // Use the known stream ARN for the Nova table
-    const novaStreamArn = `arn:aws:dynamodb:${env.region}:${env.account}:table/${novaTableName}/stream/2025-06-07T12:39:44.826`;
-    
-    novaTable = dynamodb.Table.fromTableAttributes(
-      importStack,
-      'ImportedNovaTranscribeTable',
-      {
-        tableName: novaTableName,
-        tableStreamArn: novaStreamArn
-      }
-    );
-    console.log(`Nova Transcribe table '${novaTableName}' imported successfully with stream ARN: ${novaStreamArn}`);
-  } catch (error) {
-    console.error(`Error importing Nova Transcribe table '${novaTableName}':`, error);
-    throw new Error(`Nova Transcribe table '${novaTableName}' not found or streams not enabled. Please create it first or set createNewTables=true.`);
-  }
-
-  try {
-    // Use the known stream ARN for the Booking table
-    const bookingStreamArn = `arn:aws:dynamodb:${env.region}:${env.account}:table/${bookingTableName}/stream/2025-06-07T12:40:07.906`;
-    
-    bookingTable = dynamodb.Table.fromTableAttributes(
-      importStack,
-      'ImportedRestaurantBookingTable',
-      {
-        tableName: bookingTableName,
-        tableStreamArn: bookingStreamArn
-      }
-    );
-    console.log(`Restaurant Booking table '${bookingTableName}' imported successfully with stream ARN: ${bookingStreamArn}`);
-  } catch (error) {
-    console.error(`Error importing Restaurant Booking table '${bookingTableName}':`, error);
-    throw new Error(`Restaurant Booking table '${bookingTableName}' not found or streams not enabled. Please create it first or set createNewTables=true.`);
-  }
+  
+  // Import Nova table with stream ARN
+  const novaStreamArn = 'arn:aws:dynamodb:ap-southeast-1:654654616949:table/nova-sonic-dynamodb-NovaSonicConversations75DFDA90-8473PY8RVBH1/stream/2025-06-07T12:39:44.826';
+  novaTable = dynamodb.Table.fromTableAttributes(
+    importStack,
+    'ImportedNovaTranscribeTable',
+    {
+      tableName: novaTableName,
+      tableStreamArn: novaStreamArn
+    }
+  );
+  console.log(`Nova Transcribe table '${novaTableName}' imported successfully with stream ARN: ${novaStreamArn}`);
+  
+  // Import Booking table with stream ARN
+  const bookingStreamArn = 'arn:aws:dynamodb:ap-southeast-1:654654616949:table/RestaurantBooking/stream/2025-06-07T12:40:07.906';
+  bookingTable = dynamodb.Table.fromTableAttributes(
+    importStack,
+    'ImportedRestaurantBookingTable',
+    {
+      tableName: bookingTableName,
+      tableStreamArn: bookingStreamArn
+    }
+  );
+  console.log(`Restaurant Booking table '${bookingTableName}' imported successfully with stream ARN: ${bookingStreamArn}`);
 }
 
 // Create the AppSync Events API stack

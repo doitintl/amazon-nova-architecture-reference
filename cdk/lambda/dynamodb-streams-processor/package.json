@@ -9,6 +9,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@aws-sdk/util-dynamodb": "^3.370.0"
+    "@aws-sdk/util-dynamodb": "^3.370.0",
+    "aws-amplify": "^6.0.0"
   }
 }

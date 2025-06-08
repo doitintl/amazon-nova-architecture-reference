@@ -118,7 +118,7 @@ export class AppSyncEventsStack extends cdk.Stack {
     this.apiKey = apiKey;
     
     // Construct the API URL for Events API
-    this.apiUrl = `https://${api.apiId}.events.${this.region}.amazonaws.com/`;
+    this.apiUrl = `https://${api.apiId}.appsync-api.${this.region}.amazonaws.com/event`;
 
     // Output the AppSync API URL and API Key
     new cdk.CfnOutput(this, 'EventsAPIURL', {
