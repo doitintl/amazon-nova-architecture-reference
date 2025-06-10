@@ -92,6 +92,8 @@ export class CdkStack extends cdk.Stack {
         dnsHelper: dnsHelper,
         restaurantBookingApiUrl: props?.dnsConfig?.restaurantBookingApiUrl || "",
         dynamoDbTable: dynamoDbStack.conversationTable,
+        NOVA_AWS_ACCESS_KEY_ID: props?.dnsConfig?.NOVA_AWS_ACCESS_KEY_ID || "",
+        NOVA_AWS_SECRET_ACCESS_KEY: props?.dnsConfig?.NOVA_AWS_SECRET_ACCESS_KEY || "",
         ...props,
       });
      

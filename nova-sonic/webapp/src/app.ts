@@ -91,7 +91,6 @@ class WebRTCApp {
   // Data state
   private conversations: Conversation[] = [];
   private bookings: Booking[] = [];
-  private activeDataTab: 'bookings' = 'bookings';
   private appSyncApiUrl: string = '';
   private appSyncApiKey: string = '';
 
@@ -759,9 +758,6 @@ class WebRTCApp {
     this.dataTable = this.dataTableContainer.querySelector(".data-table") as HTMLElement;
     this.dataTableBody = this.dataTableContainer.querySelector("#data-table-body") as HTMLElement;
     this.dataTableStatus = this.dataTableContainer.querySelector(".data-table-status") as HTMLElement;
-    
-    // Set active tab to bookings by default
-    this.activeDataTab = 'bookings';
     
     // Create Nova Transcribe container outside of data table
     this.setupNovaTranscribeUI();

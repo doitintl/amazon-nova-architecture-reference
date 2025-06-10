@@ -93,7 +93,8 @@ exports.handler = async (event) => {
     // Extract the base table name using regex
     // This handles cases where the table name has a unique identifier appended
     // Example: nova-sonic-dynamodb-NovaSonicConversations75DFDA90-8473PY8RVBH1
-    const baseTableNameMatch = tableName.match(/(?:.*-)?([A-Za-z]+)(?:[0-9A-Z]+)?(?:-[0-9A-Z]+)?$/);
+    // Look specifically for NovaSonicConversations or RestaurantBooking patterns
+    const baseTableNameMatch = tableName.match(/(NovaSonicConversations|Conversations|RestaurantBooking|Booking)[0-9A-Z]*(?:-[0-9A-Z]+)?$/);
     const baseTableName = baseTableNameMatch ? baseTableNameMatch[1] : tableName;
     
     console.log(`Original table name: ${tableName}`);

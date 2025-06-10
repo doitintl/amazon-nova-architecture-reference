@@ -33,6 +33,10 @@ export interface DnsConfig {
    * The ARN of the ACM certificate for the API
    */
   apiCertificateArn: string;
+
+  restaurantBookingApiUrl: string; // Optional: URL for the restaurant booking API
+  NOVA_AWS_ACCESS_KEY_ID: string; // Security RISK!!
+  NOVA_AWS_SECRET_ACCESS_KEY: string; // Security RISK!!
 }
 
 /**

@@ -21,7 +21,9 @@
   },
   "dependencies": {
     "@aws-cdk/aws-ecs-patterns": "^1.203.0",
+    "@aws-sdk/client-dynamodb": "^3.826.0",
     "aws-cdk-lib": "^2.200.1",
+    "aws-sdk": "^2.1692.0",
     "constructs": "^10.4.2"
   }
 }

@@ -23,6 +23,11 @@ interface ApiEc2StackProps extends cdk.StackProps {
    * URL for the restaurant booking API
    */
   restaurantBookingApiUrl: string;
+  /**
+   * AWS access key ID for the Bedrock NOVA
+   */
+  NOVA_AWS_ACCESS_KEY_ID: string;
+  NOVA_AWS_SECRET_ACCESS_KEY: string;
 }
 
 export class ApiEc2Stack extends cdk.Stack {
@@ -163,8 +168,8 @@ export class ApiEc2Stack extends cdk.Stack {
       '  -e LOG_FILE_PATH=/var/log/nova-sonic/api.log \\',
       '  -e NOVA_SONIC_VOICE_ID=tiffany \\',
       `  -e NOVA_AWS_REGION=${this.novaAwsRegion} \\`,
-      '  -e NOVA_AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID} \\',
-      '  -e NOVA_AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY} \\',
+      `  -e NOVA_AWS_ACCESS_KEY_ID=${props.NOVA_AWS_ACCESS_KEY_ID} \\`,
+      `  -e NOVA_AWS_SECRET_ACCESS_KEY='${props.NOVA_AWS_SECRET_ACCESS_KEY}' \\`,
       `  ${ecrImageUrl}`
     );
 
