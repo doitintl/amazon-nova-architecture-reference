@@ -19,6 +19,10 @@ interface ApiEc2StackProps extends cdk.StackProps {
   dnsHelper?: DnsHelper;
   novaAwsRegion?: string; // AWS region for Nova Sonic
   dynamoDbTable: dynamodb.Table; // DynamoDB table for conversation history
+  /**
+   * URL for the restaurant booking API
+   */
+  restaurantBookingApiUrl: string;
 }
 
 export class ApiEc2Stack extends cdk.Stack {
@@ -130,7 +134,7 @@ export class ApiEc2Stack extends cdk.Stack {
     // // Create a Docker image asset from the API Dockerfile
     const dockerImageAsset = new ecr_assets.DockerImageAsset(this, 'ApiDockerImage', {
       directory: path.join(__dirname, '../../nova-sonic/api'),
-      platform: ecr_assets.Platform.LINUX_ARM64,
+      platform: ecr_assets.Platform.LINUX_AMD64,
     });
 
     // Get the ECR image URL from the asset
@@ -152,7 +156,7 @@ export class ApiEc2Stack extends cdk.Stack {
       `  -e AWS_REGION=${this.region} \\`,
       `  -e DYNAMODB_TABLE_NAME=${this.table.tableName} \\`,
       '  -e STUN_SERVER=stun:stun.l.google.com:19302 \\',
-      '  -e RESTAURANT_BOOKING_API_URL=https://lcp8gupvck.execute-api.us-east-1.amazonaws.com/demo \\',
+      `  -e RESTAURANT_BOOKING_API_URL=${props.restaurantBookingApiUrl || 'https://lcp8gupvck.execute-api.us-east-1.amazonaws.com/demo'} \\`,
       '  -e HOST=0.0.0.0 \\',
       '  -e PORT=8000 \\',
       '  -e LOG_LEVEL=INFO \\',
@@ -167,9 +171,9 @@ export class ApiEc2Stack extends cdk.Stack {
     // Create Auto Scaling Group
     this.autoScalingGroup = new autoscaling.AutoScalingGroup(this, 'ApiASG', {
       vpc: props.vpc,
-      instanceType: ec2.InstanceType.of(ec2.InstanceClass.C7G, ec2.InstanceSize.XLARGE),
+      instanceType: ec2.InstanceType.of(ec2.InstanceClass.C7I, ec2.InstanceSize.XLARGE),
       machineImage: ec2.MachineImage.latestAmazonLinux2023({
-        cpuType: ec2.AmazonLinuxCpuType.ARM_64,
+        cpuType: ec2.AmazonLinuxCpuType.X86_64,
       }),
       minCapacity: 1,
       maxCapacity: 3,

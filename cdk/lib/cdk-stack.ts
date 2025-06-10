@@ -26,7 +26,8 @@ export interface CdkStackProps extends cdk.StackProps {
    * The deployment type for the API (ECS or EC2_DIRECT)
    * @default ApiDeploymentType.ECS
    */
-  apiDeploymentType?: ApiDeploymentType;   
+  apiDeploymentType?: ApiDeploymentType;
+  restaurantBookingApiUrl: string;
 }
 
 export class CdkStack extends cdk.Stack {
@@ -77,6 +78,7 @@ export class CdkStack extends cdk.Stack {
         stackName: 'nova-sonic-api',
         vpc: networkStack.vpc,
         dnsHelper: dnsHelper,
+        restaurantBookingApiUrl: props?.dnsConfig?.restaurantBookingApiUrl || "",
         dynamoDbTable: dynamoDbStack.conversationTable,
         ...props,
       });
@@ -88,6 +90,7 @@ export class CdkStack extends cdk.Stack {
         stackName: 'nova-sonic-api-ec2',
         vpc: networkStack.vpc,
         dnsHelper: dnsHelper,
+        restaurantBookingApiUrl: props?.dnsConfig?.restaurantBookingApiUrl || "",
         dynamoDbTable: dynamoDbStack.conversationTable,
         ...props,
       });

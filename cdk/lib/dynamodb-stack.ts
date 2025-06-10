@@ -54,26 +54,5 @@ export class DynamoDbStack extends cdk.Stack {
       exportName: 'NovaTranscribeTableStreamArn',
     });
 
-    // Create Booking table with stream enabled
-    this.bookingTable = new dynamodb.Table(this, 'RestaurantBooking', {
-      tableName: 'RestaurantBooking',
-      partitionKey: { name: 'bookingId', type: dynamodb.AttributeType.STRING },
-      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      removalPolicy: cdk.RemovalPolicy.RETAIN,
-      stream: dynamodb.StreamViewType.NEW_IMAGE, // Enable streams with NEW_IMAGE view type
-    });
-
-    // Output the Booking table name and stream ARN
-    new cdk.CfnOutput(this, 'BookingTableName', {
-      value: this.bookingTable.tableName,
-      description: 'The name of the Restaurant Booking table',
-      exportName: 'RestaurantBookingTableName',
-    });
-
-    new cdk.CfnOutput(this, 'BookingTableStreamArn', {
-      value: this.bookingTable.tableStreamArn || '',
-      description: 'The ARN of the Restaurant Booking table stream',
-      exportName: 'RestaurantBookingTableStreamArn',
-    });
   }
 }

@@ -1,0 +1,10 @@
+.venv
+
+# Exclude development files
+.git
+.gitignore
+*.log
+
+# Exclude environment files
+.env
+.env.*

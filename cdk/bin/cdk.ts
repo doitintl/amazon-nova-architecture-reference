@@ -37,6 +37,7 @@ new CdkStack(app, 'NovaSonicStack', {
   env,
   description: 'Nova Sonic Speech-to-Speech Application Infrastructure',
   dnsConfig,
+  restaurantBookingApiUrl: dnsConfig?.restaurantBookingApiUrl || '',
   apiDeploymentType: apiDeploymentType as ApiDeploymentType
 });
 

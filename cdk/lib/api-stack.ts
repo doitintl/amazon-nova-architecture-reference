@@ -22,6 +22,10 @@ interface ApiStackProps extends cdk.StackProps {
    */
   dynamoDbTable: dynamodb.Table;
   novaAwsRegion?: string;
+  /**
+   * URL for the restaurant booking API
+   */
+  restaurantBookingApiUrl: string;
 }
 
 export class ApiStack extends cdk.Stack {
@@ -121,6 +125,7 @@ let container: ecs.ContainerDefinition;
       'NOVA_AWS_REGION': this.novaAwsRegion,
       'NOVA_AWS_ACCESS_KEY_ID': '#{AWS_ACCESS_KEY_ID}',
       'NOVA_AWS_SECRET_ACCESS_KEY': '#{AWS_SECRET_ACCESS_KEY}',
+      "RESTAURANT_BOOKING_API_URL": props.restaurantBookingApiUrl || "https://restaurant-booking-api.example.com",
     },
     portMappings: [
       {
