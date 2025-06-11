@@ -1,185 +1,73 @@
-# Speech-to-Speech with Amazon Nova Sonic
+# Nova Sonic: Speech-to-Speech with Amazon Bedrock
 
-This project demonstrates a speech-to-speech application using Amazon Bedrock Nova Sonic, enabling real-time voice conversations with an AI assistant through a web interface.
+Nova Sonic is a speech-to-speech conversation application powered by Amazon Bedrock and Amazon Nova Sonic. It enables real-time voice conversations with an AI assistant, featuring WebRTC for audio streaming and a restaurant booking capability.
+
+## Key Features
+
+- **Real-time Speech-to-Speech Conversations**: Engage in natural voice conversations with an AI assistant powered by Amazon Bedrock
+- **WebRTC Integration**: Low-latency audio streaming for responsive interactions
+- **Restaurant Booking Capability**: Demonstrate practical use cases with a restaurant booking feature
+- **Real-time Event System**: AppSync Events API for real-time updates and notifications
+- **Scalable Architecture**: Deployed on AWS with auto-scaling capabilities
+- **Multiple Deployment Options**: Support for both ECS and EC2-based deployments
 
 ## Architecture Overview
 
-The system consists of three main components:
+![Nova Sonic Architecture](generated-diagrams/nova-sonic-architecture-diagram.png)
 
-1. **Web Application**: A frontend interface that allows users to interact with the AI assistant
-2. **API Service**: A backend service that handles WebRTC connections and integrates with Amazon Bedrock
-3. **CDK Infrastructure**: AWS CDK code for deploying the entire solution to AWS
+The Nova Sonic application consists of several key components:
 
-### System Flow
+- **Frontend Web Application**: WebRTC-enabled interface for user interactions
+- **Backend API Service**: Processes audio streams and manages conversations
+- **Amazon Bedrock Integration**: Powers the AI conversation capabilities
+- **DynamoDB**: Stores conversation history and restaurant bookings
+- **AppSync Events API**: Provides real-time publish/subscribe functionality
 
-```
-                                  ┌─────────────────────┐
-                                  │                     │
-                                  │  Amazon Bedrock     │
-                                  │  Nova Sonic         │
-                                  │                     │
-                                  └─────────┬───────────┘
-                                            │
-                                            │ AI Speech Generation
-                                            ▼
-┌─────────────┐    HTTP     ┌───────────────────────┐    WebRTC    ┌───────────────────┐
-│             │             │                       │              │                   │
-│  Web        │◄───────────►│  Web Application      │◄────────────►│  API Service      │
-│  Browser    │    (ALB)    │  (ECS Fargate)        │    (NLB)     │  (ECS Fargate)    │
-│             │             │                       │              │                   │
-└─────────────┘             └───────────────────────┘              └─────────┬─────────┘
-                                                                             │
-                                                                             │
-                                                                             ▼
-                                                                    ┌─────────────────┐
-                                                                    │                 │
-                                                                    │  DynamoDB       │
-                                                                    │  (Conversation  │
-                                                                    │   History)      │
-                                                                    │                 │
-                                                                    └─────────────────┘
-```
+For a detailed explanation of the architecture, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
-When a user accesses the application:
-
-1. The web browser connects to the web application via an Application Load Balancer (ALB)
-2. When the user clicks "Connect", the web application establishes a WebRTC connection to the API service via a Network Load Balancer (NLB)
-3. The API service uses the pipecat library to connect to Amazon Bedrock Nova Sonic
-4. Nova Sonic processes the user's speech and generates AI responses
-5. The conversation flows bidirectionally through WebRTC, allowing real-time speech interaction
-6. Conversation history is stored in DynamoDB for future reference
-
-The system also integrates with Amazon Q Business Workshop via API Gateway for additional functionality.
-
-## Components
-
-### Web Application (`nova-sonic/webapp`)
-
-The web application provides a user interface for interacting with the AI assistant. Key features include:
-
-- WebRTC-based audio streaming
-- Microphone and camera controls
-- Voice visualization
-- Real-time transcription display
-
-The frontend is built using TypeScript and communicates with the API service using the pipecat WebRTC transport.
-
-### API Service (`nova-sonic/api`)
-
-The API service handles WebRTC connections and integrates with Amazon Bedrock Nova Sonic. Key features include:
-
-- WebRTC signaling and connection management
-- Integration with Amazon Bedrock Nova Sonic for speech-to-speech AI
-- Voice activity detection (VAD)
-- Conversation history storage in DynamoDB
-
-The API is built using FastAPI and the pipecat library for WebRTC and AI integration.
-
-### CDK Infrastructure (`cdk/`)
-
-The AWS CDK code defines the infrastructure for deploying the application to AWS. Key components include:
-
-- VPC and networking configuration
-- ECS Fargate services for the web application and API
-- Application Load Balancer for HTTP traffic
-- Network Load Balancer for WebRTC UDP traffic
-- DynamoDB table for conversation history
-- IAM roles and security groups
-
-## Getting Started
+## Quick Start
 
 ### Prerequisites
 
-- AWS Account with appropriate permissions
-- Node.js and npm installed
-- AWS CDK installed
-- Docker installed
+- AWS Account with access to Amazon Bedrock
+- AWS CLI configured with appropriate credentials
+- Node.js 14.x or later
+- AWS CDK v2 installed
+- Docker for building container images
 
 ### Deployment
 
 1. Clone the repository:
-   ```
+   ```bash
    git clone https://github.com/yourusername/speech-to-speech-amazon-nova-sonic.git
    cd speech-to-speech-amazon-nova-sonic
    ```
 
-2. Install dependencies:
+2. Configure environment variables:
+   ```bash
+   cd nova-sonic/api
+   cp .env.example .env
+   # Edit .env with your settings
    ```
-   cd cdk
+
+3. Deploy the CDK stacks:
+   ```bash
+   cd ../../cdk
    npm install
-   ```
-
-3. Configure environment variables:
-   - Copy `.env.example` to `.env` in both `nova-sonic/webapp` and `nova-sonic/api` directories
-   - Update the values with your AWS credentials and configuration
-
-4. Deploy the CDK stacks:
-   ```
+   cdk bootstrap
    cdk deploy --all
    ```
 
-5. Access the application using the WebappLoadBalancerDNS output from the CDK deployment.
+For detailed deployment instructions, see [DEPLOYMENT.md](DEPLOYMENT.md).
 
-## Local Development
+## Documentation
 
-### Web Application
-
-1. Navigate to the webapp directory:
-   ```
-   cd nova-sonic/webapp
-   ```
-
-2. Install dependencies:
-   ```
-   npm install
-   ```
-
-3. Start the development server:
-   ```
-   npm run dev
-   ```
-
-### API Service
-
-1. Navigate to the API directory:
-   ```
-   cd nova-sonic/api
-   ```
-
-2. Create a virtual environment:
-   ```
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
-
-3. Install dependencies:
-   ```
-   pip install -r requirements.txt
-   ```
-
-4. Start the API server:
-   ```
-   python app.py
-   ```
-
-## Configuration
-
-### Web Application
-
-The web application can be configured using environment variables in the `.env` file:
-
-- `API_ENDPOINT`: URL of the API service
-
-### API Service
-
-The API service can be configured using environment variables in the `.env` file:
-
-- `AWS_REGION`: AWS region for Bedrock and other services
-- `NOVA_SONIC_VOICE_ID`: Voice ID for Nova Sonic (e.g., "tiffany", "matthew")
-- `STUN_SERVER`: STUN server for WebRTC
-- `TURN_SERVER`: TURN server for WebRTC (optional)
-- `DYNAMODB_TABLE_NAME`: Name of the DynamoDB table for conversation history
+- [Architecture Documentation](ARCHITECTURE.md): Comprehensive documentation of the system architecture
+- [Deployment Guide](DEPLOYMENT.md): Detailed instructions for deploying the system
+- [EC2 API Deployment](cdk/EC2_API_DEPLOYMENT.md): Alternative deployment option using EC2 instances
+- [HTTPS Setup](cdk/HTTPS_SETUP.md): Instructions for configuring HTTPS
+- [AppSync Events API](cdk/README-APPSYNC-EVENTS.md): Documentation for the real-time event system
 
 ## License
 
-This project is licensed under the terms specified in the LICENSE file.
+This project is licensed under the MIT License - see the LICENSE file for details.
